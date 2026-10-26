@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./db');
 const { parseFit } = require('./fit');
+const { insertParsed } = require('./importer');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -13,33 +14,6 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 app.use(cors());
 
 // ---- Import ----
-function upsertEquipment(eq, when) {
-  if (!eq) return null;
-  const hours = eq.duration_s ? eq.duration_s / 3600 : 0;
-  let row = db.prepare(
-    'SELECT id FROM equipment WHERE (serial_number IS NOT NULL AND serial_number = ?)'
-  ).get(eq.serial_number || null);
-  if (!row && eq.serial_number) {
-    // no serial match, try product name
-  }
-  if (!row && eq.product_name) {
-    row = db.prepare('SELECT id FROM equipment WHERE product_name = ?').get(eq.product_name);
-  }
-  if (row) {
-    db.prepare(
-      `UPDATE equipment SET usage_hours = usage_hours + ?,
-        last_seen = MAX(COALESCE(last_seen, ?), ?),
-        first_seen = MIN(COALESCE(first_seen, ?), ?)
-        WHERE id = ?`
-    ).run(hours, when, when, when, when, row.id);
-    return row.id;
-  }
-  const r = db.prepare(
-    'INSERT INTO equipment (serial_number, product_name, manufacturer, first_seen, last_seen, usage_hours) VALUES (?,?,?,?,?,?)'
-  ).run(eq.serial_number || null, eq.product_name || null, eq.manufacturer || null, when, when, hours);
-  return Number(r.lastInsertRowid);
-}
-
 app.post('/api/import', upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
@@ -51,40 +25,11 @@ app.post('/api/import', upload.single('file'), async (req, res, next) => {
     } catch (e) {
       return res.status(422).json({ error: 'Failed to parse FIT file: ' + e.message });
     }
-    const s = parsed.summary;
     db.exec('BEGIN');
     try {
-      const ins = db.prepare(`
-        INSERT INTO activities (
-          name, sport, sport_subtype, start_time, distance_km, duration_s, moving_s,
-          avg_speed, max_speed, avg_hr, max_hr, avg_power, max_power,
-          elevation_gain, elevation_loss, min_altitude, max_altitude,
-          avg_temp, max_temp, avg_cadence, device, source_file, created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      `);
-      const info = ins.run(
-        s.name || (s.sport + ' ' + (s.start_time ? s.start_time.slice(0, 10) : '')),
-        s.sport, s.sport_subtype, s.start_time, s.distance_km, s.duration_s, s.moving_s,
-        s.avg_speed, s.max_speed, s.avg_hr, s.max_hr, s.avg_power, s.max_power,
-        s.elevation_gain, s.elevation_loss, s.min_altitude, s.max_altitude,
-        s.avg_temp, s.max_temp, s.avg_cadence, s.device, s.source_file, new Date().toISOString()
-      );
-      const activityId = Number(info.lastInsertRowid);
-
-      const insRec = db.prepare(
-        'INSERT INTO records (activity_id, t, lat, lon, altitude, speed, distance_m, hr, cadence, power, temperature) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-      );
-      const when = s.start_time || new Date().toISOString();
-      const insEqLink = db.prepare('INSERT OR IGNORE INTO activity_equipment (activity_id, equipment_id) VALUES (?,?)');
-
-      for (const r of parsed.samples) {
-        insRec.run(activityId, r.t, r.lat, r.lon, r.altitude, r.speed, r.distance_m, r.hr, r.cadence, r.power, r.temperature);
-      }
-      const eqId = upsertEquipment(parsed.equipment, when);
-      if (eqId) insEqLink.run(activityId, eqId);
-
+      const { activityId, recordCount } = insertParsed(parsed);
       db.exec('COMMIT');
-      res.json({ ok: true, id: activityId, count: parsed.samples.length });
+      res.json({ ok: true, id: activityId, count: recordCount });
     } catch (e) {
       db.exec('ROLLBACK');
       throw e;

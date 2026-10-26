@@ -2,6 +2,8 @@ export const SPORTS = {
   running: { label: '跑步', color: '#ff5722', icon: '🏃' },
   trail: { label: '越野跑', color: '#ff7043', icon: '⛰️' },
   cycling: { label: '骑行', color: '#2196f3', icon: '🚴' },
+  biking: { label: '骑行', color: '#2196f3', icon: '🚴' },
+  triathlon: { label: '铁人三项', color: '#7c4dff', icon: '🏆' },
   swimming: { label: '游泳', color: '#00bcd4', icon: '🏊' },
   swim: { label: '游泳', color: '#00bcd4', icon: '🏊' },
   walking: { label: '步行', color: '#4caf50', icon: '🚶' },

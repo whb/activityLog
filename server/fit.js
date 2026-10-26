@@ -1,6 +1,6 @@
 'use strict';
 // Parses a .FIT buffer into a normalized activity summary + sample records.
-const { default: FitParser, getFitSportName, getFitSubSportName, getFitManufacturerName } = require('fit-file-parser');
+const { default: FitParser, getFitSportName, getFitManufacturerName, getFitGarminProductDisplayName } = require('fit-file-parser');
 
 function num(v) {
   if (v === null || v === undefined) return null;
@@ -12,6 +12,16 @@ function toDate(v) {
   if (!v) return null;
   const d = v instanceof Date ? v : new Date(v);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// Pick the "main" device from the device_infos array (watch/computer that created the file).
+function pickDevice(deviceInfos) {
+  if (!Array.isArray(deviceInfos) || !deviceInfos.length) return null;
+  return (
+    deviceInfos.find((d) => d && d.device_index === 'creator') ||
+    deviceInfos.find((d) => d && d.serial_number != null) ||
+    deviceInfos[0]
+  );
 }
 
 // Prefer explicit elapsed_time, else derive from timestamps.
@@ -38,31 +48,52 @@ async function parseFit(buffer, sourceFile) {
   const data = await parser.parseAsync(buffer);
 
   const sessions = data.sessions || [];
-  const session = sessions[sessions.length - 1] || {};
   const records = data.records || [];
+  const activity = data.activity || {};
+  const lastSession = sessions[sessions.length - 1] || {};
 
-  // Sport
-  const sportId = session.sport ?? session.activity_type;
-  let sport = null;
-  if (typeof sportId === 'number' || typeof sportId === 'string') {
-    sport = getFitSportName(sportId) || null;
-  }
-  const subSportId = session.sub_sport;
-  let sportSubtype = null;
-  if (typeof subSportId === 'number' || typeof subSportId === 'string') {
-    sportSubtype = getFitSubSportName(subSportId) || null;
-  }
+  // ---- Multi-sport (triathlon) detection: explicit type, or >1 real sport across sessions ----
+  const realSports = new Set(sessions.map((s) => s.sport).filter((x) => x && x !== 'transition' && x !== 'generic'));
+  const isMulti = (activity.type && String(activity.type).includes('multi')) ||
+    (sessions.length > 1 && realSports.size > 1);
 
-  // Distance: session total (m) -> km, fallback to last record cumulative
-  let distanceM = num(session.total_distance);
-  if (distanceM === null && records.length) {
-    const last = records[records.length - 1];
-    distanceM = num(last.distance);
+  // ---- Sport name (parser returns a decoded string like "running", or a numeric id) ----
+  const decode = (v) => (typeof v === 'string' && v ? v : typeof v === 'number' ? getFitSportName(v) || null : null);
+  let sport = isMulti ? 'triathlon' : decode(lastSession.sport ?? lastSession.activity_type);
+  let sportSubtype = isMulti ? null : decode(lastSession.sub_sport);
+  if (!sport || sport === 'generic' || sport === 'unknown') {
+    const st = (sportSubtype || '').toLowerCase();
+    if (st.includes('swim') || st === 'open_water') sport = 'swimming';
+    else if (st === 'triathlon') sport = 'triathlon';
   }
 
-  // Altitude min/max from session bounds if absent, else scan records
-  let minAlt = num(session.min_altitude);
-  let maxAlt = num(session.max_altitude);
+  // ---- Cross-session aggregation helpers ----
+  const vals = (f) => sessions.map((s) => num(s[f])).filter((v) => v !== null);
+  const sumV = (f) => { const v = vals(f); return v.length ? v.reduce((a, b) => a + b, 0) : null; };
+  const maxV = (f) => { const v = vals(f); return v.length ? Math.max(...v) : null; };
+  const meanV = (f) => { const v = vals(f); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+
+  let movingS = 0, hasMoving = false;
+  for (const s of sessions) { const m = num(s.moving_time ?? s.active_time); if (m !== null) { movingS += m; hasMoving = true; } }
+  if (!hasMoving) movingS = null;
+
+  // Distance = sum of all session distances (m); fallback to last record cumulative.
+  let distanceM = sumV('total_distance') || 0;
+  if (!distanceM && records.length) distanceM = num(records[records.length - 1].distance) || 0;
+
+  // Duration = activity total timer time for multi-sport, else last session elapsed.
+  let durationS = isMulti ? num(activity.total_timer_time) : num(lastSession.total_elapsed_time);
+  if (durationS === null) durationS = sumV('total_elapsed_time');
+
+  // Start = earliest session start.
+  const starts = sessions.map((s) => toDate(s.start_time)).filter(Boolean).sort();
+  const startTime = starts[0] || null;
+
+  // Altitude bounds from sessions first, refined by scanning records below.
+  let minAlt = null, maxAlt = null;
+  const sMin = vals('min_altitude'), sMax = vals('max_altitude');
+  if (sMin.length) minAlt = Math.min(...sMin);
+  if (sMax.length) maxAlt = Math.max(...sMax);
 
   const samples = [];
   for (const r of records) {
@@ -74,7 +105,7 @@ async function parseFit(buffer, sourceFile) {
       maxAlt = maxAlt === null ? alt : Math.max(maxAlt, alt);
     }
     samples.push({
-      t: relTime(r, session.start_time),
+      t: relTime(r, startTime),
       lat,
       lon,
       altitude: alt,
@@ -87,55 +118,61 @@ async function parseFit(buffer, sourceFile) {
     });
   }
 
-  // Cadence average fallback from records
-  let avgCadence = num(session.avg_cadence);
+  // Cadence average (across sessions), fallback to per-record mean.
+  const avgCadSess = meanV('avg_cadence');
+  let avgCadence = avgCadSess != null ? Math.round(avgCadSess) : null;
   if (avgCadence === null) {
     const cs = samples.map((s) => s.cadence).filter((c) => c !== null && c > 0);
     if (cs.length) avgCadence = Math.round(cs.reduce((a, b) => a + b, 0) / cs.length);
   }
 
-  // Temperature bounds
-  let maxTemp = num(session.max_temperature);
+  // Temperature max across sessions, fallback to records.
+  let maxTemp = maxV('max_temperature');
   if (maxTemp === null) {
     const ts = samples.map((s) => s.temperature).filter((t) => t !== null);
     if (ts.length) maxTemp = Math.max(...ts);
   }
 
-  const durationS = num(session.total_elapsed_time);
-  const movingS = num(session.active_time ?? session.moving_time);
-
-  // Device info
-  const di = data.device_info || {};
+  // Device info (device_infos is an array: watch + sensors; pick the creator)
+  const di = pickDevice(data.device_infos);
   let device = null;
   let manufacturer = null;
   let product = null;
   let serial = null;
   if (di) {
-    manufacturer = di.manufacturer != null ? getFitManufacturerName(di.manufacturer) : null;
-    product = di.product_name || di.product || null;
+    manufacturer = di.manufacturer;
+    if (typeof manufacturer === 'number') manufacturer = getFitManufacturerName(manufacturer) || null;
+    if (typeof manufacturer === 'string' && manufacturer) manufacturer = manufacturer.charAt(0).toUpperCase() + manufacturer.slice(1);
+    if (di.product_name) product = di.product_name;
+    else if (typeof di.product === 'number') product = getFitGarminProductDisplayName(di.product) || null;
     serial = di.serial_number != null ? String(di.serial_number) : null;
     device = [product, manufacturer].filter(Boolean).join(' ') || null;
   }
 
+  // avg_speed: recompute for multi-sport (total/total), else the official session value.
+  const avgSpeed = isMulti
+    ? (distanceM && durationS ? +((distanceM / 1000) / (durationS / 3600)).toFixed(2) : null)
+    : num(lastSession.avg_speed);
+
   const summary = {
-    name: session.name || null,
+    name: lastSession.name || null,
     sport: sport || 'unknown',
     sport_subtype: sportSubtype,
-    start_time: toDate(session.start_time),
-    distance_km: distanceM !== null ? +(distanceM / 1000).toFixed(3) : null,
+    start_time: startTime,
+    distance_km: distanceM ? +(distanceM / 1000).toFixed(3) : null,
     duration_s: durationS !== null ? Math.round(durationS) : null,
     moving_s: movingS !== null ? Math.round(movingS) : null,
-    avg_speed: num(session.avg_speed),
-    max_speed: num(session.max_speed),
-    avg_hr: session.avg_heart_rate != null ? Math.round(session.avg_heart_rate) : null,
-    max_hr: session.max_heart_rate != null ? Math.round(session.max_heart_rate) : null,
-    avg_power: num(session.avg_power),
-    max_power: num(session.max_power),
-    elevation_gain: num(session.total_ascent),
-    elevation_loss: num(session.total_descent),
+    avg_speed: avgSpeed,
+    max_speed: maxV('max_speed'),
+    avg_hr: meanV('avg_heart_rate') != null ? Math.round(meanV('avg_heart_rate')) : null,
+    max_hr: maxV('max_heart_rate'),
+    avg_power: meanV('avg_power') != null ? Math.round(meanV('avg_power')) : null,
+    max_power: maxV('max_power'),
+    elevation_gain: sumV('total_ascent'),
+    elevation_loss: sumV('total_descent'),
     min_altitude: minAlt,
     max_altitude: maxAlt,
-    avg_temp: num(session.avg_temperature),
+    avg_temp: isMulti ? meanV('avg_temperature') : num(lastSession.avg_temperature),
     max_temp: maxTemp,
     avg_cadence: avgCadence,
     device,
