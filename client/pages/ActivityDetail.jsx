@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import Chart from '../components/Chart.jsx';
-import TrackMap from '../components/TrackMap.jsx';
+import LinkedCharts from '../components/LinkedCharts.jsx';
 import { sportMeta, fmtDateTime, fmtDuration, num, tLabel } from '../lib/format.js';
 import {
   powerAnalysis, powerSpikes, climbAnalysis,
@@ -65,11 +65,6 @@ export default function ActivityDetail() {
     if (has('cadence')) out.push(make('cad', (r) => r.cadence, '#06b6d4', '踏频', 'spm', false));
     if (has('temperature')) out.push(make('tmp', (r) => r.temperature, '#0ea5e9', '温度', '°C', false));
     return out;
-  }, [data]);
-
-  const mapPoints = useMemo(() => {
-    if (!data) return [];
-    return data.records.filter((r) => r.lat != null && r.lon != null).map((r) => [r.lat, r.lon]);
   }, [data]);
 
   // ---- 深度分析（功率/爬升/散点/直方图/游泳） ----
@@ -181,9 +176,8 @@ export default function ActivityDetail() {
         ))}
       </div>
 
-      <div className="card pad" style={{ marginBottom: 16 }}>
-        <h3 className="section-title">轨迹地图</h3>
-        <TrackMap points={mapPoints} height={440} />
+      <div style={{ marginBottom: 16 }}>
+        <LinkedCharts key={id} activity={a} records={data.records} laps={data.laps} />
       </div>
 
       {charts.length ? (

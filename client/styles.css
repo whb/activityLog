@@ -154,3 +154,41 @@ td .muted { color: var(--muted); }
 .tl-m { background: var(--bg); border-radius: 10px; padding: 10px 12px; }
 .tl-m span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .tl-m b { font-size: 22px; font-weight: 800; }
+
+/* ===== 联动图表（圈速 + 地图 + 海拔剖面） ===== */
+.lc-wrap { margin-bottom: 4px; }
+.linked { display: grid; grid-template-columns: minmax(300px, 38%) 1fr; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .linked { grid-template-columns: 1fr; } }
+.linked-left, .linked-right { min-width: 0; }
+.lc-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.lc-sub { font-size: 12px; color: var(--muted); font-weight: 600; }
+.lc-hint { font-size: 12px; font-weight: 400; margin-left: 6px; }
+
+.laps-wrap { max-height: 470px; overflow-y: auto; }
+.laps-wrap table { font-size: 13px; }
+.laps-wrap th, .laps-wrap td { padding: 8px 10px; }
+.laps-wrap tbody tr.sel { background: #eef0ff; box-shadow: inset 3px 0 0 var(--brand); }
+.laps-wrap tbody tr.sel td { color: var(--ink); }
+
+.map-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); cursor: pointer; user-select: none; }
+.chk input { width: 15px; height: 15px; accent-color: var(--brand); cursor: pointer; }
+.btn-sm { padding: 6px 12px; font-size: 12.5px; border-radius: 8px; }
+
+.map-wrap { position: relative; }
+.map-panel {
+  position: absolute; right: 12px; bottom: 12px; z-index: 500;
+  width: 196px; background: rgba(255,255,255,.94); backdrop-filter: blur(4px);
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 20px rgba(16,24,40,.16);
+  padding: 10px 12px; font-size: 13px;
+}
+.mp-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+.mp-idx { font-size: 11px; color: var(--muted); font-weight: 600; }
+.mp-row { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; border-bottom: 1px dashed #eef1f7; }
+.mp-row:last-of-type { border-bottom: none; }
+.mp-row span { color: var(--muted); font-size: 12px; }
+.mp-row b { font-size: 14px; font-weight: 700; }
+.mp-row b i { font-style: normal; font-size: 10px; color: var(--muted); font-weight: 600; margin-left: 2px; }
+.spark { display: block; margin-top: 6px; background: #f7f9ff; border-radius: 6px; }
+
+.empty.small { padding: 22px 12px; font-size: 13px; }
