@@ -65,7 +65,8 @@ function toGcj02(coords) {
 
 const dot = (color) => `<div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`;
 
-function initAMap(el, AMap, coords) {
+function initAMap(el, AMap, coords, wgs) {
+  // coords: GCJ-02（高德绘制用）；wgs: WGS-84（失败回退到 ArcGIS 时用，避免国内轨迹偏移）
   const path = coords.map(([lat, lon]) => [lon, lat]); // 高德使用 [lng, lat]
   const map = new AMap.Map(el, { viewMode: '2D', zoom: 13, center: path[0] });
   const polyline = new AMap.Polyline({ path, strokeColor: '#2196f3', strokeWeight: 5, lineJoin: 'round', lineCap: 'round' });
@@ -75,17 +76,38 @@ function initAMap(el, AMap, coords) {
   map.add(startM);
   map.add(endM);
   map.setFitView([polyline, startM, endM]);
-  return () => { try { map.destroy(); } catch { /* ignore */ } };
+
+  // 高德 JS API 的 key 失效/域名白名单不符/安全密钥错误时，脚本仍能下载(200)，
+  // 但地图会灰屏、不 onerror。此处监听 maperror 并回退到 Leaflet，保证总能显示地图。
+  let leafletCleanup = null;
+  let disposed = false;
+  const fallback = () => {
+    if (disposed || leafletCleanup) return;
+    try { map.destroy(); } catch { /* ignore */ }
+    if (el) el.innerHTML = '';
+    leafletCleanup = initLeaflet(el, wgs);
+  };
+  try { map.on('maperror', fallback); } catch { /* ignore */ }
+  const prevOnError = window.onMapError;
+  window.onMapError = (e) => { fallback(); if (typeof prevOnError === 'function') prevOnError(e); };
+
+  return () => {
+    disposed = true;
+    if (window.onMapError) window.onMapError = prevOnError;
+    if (leafletCleanup) leafletCleanup();
+    else { try { map.destroy(); } catch { /* ignore */ } }
+  };
 }
 
-// 无高德 key 时的回退方案：Leaflet + 高德栅格瓦片（国内可访问，无需 key；coords 已是 GCJ-02）
+// 回退方案：Leaflet + ArcGIS 世界街道图瓦片。
+// 选它的原因：无需 key、国内可访问、全球有覆盖（高德栅格瓦片对境外/澳洲是空白瓦片）。
+// coords 需为 WGS-84（原始 GPS，未偏移）。
 function initLeaflet(el, coords) {
   const m = L.map(el);
   m.setView([coords[0][0], coords[0][1]], 13);
-  L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
     maxZoom: 19,
-    subdomains: ['1', '2', '3', '4'],
-    attribution: '&copy; 高德地图',
+    attribution: '&copy; ArcGIS / OpenStreetMap contributors',
   }).addTo(m);
   if (coords.length > 1) {
     L.polyline(coords, { color: '#2196f3', weight: 4, opacity: 0.85 }).addTo(m);
@@ -106,7 +128,7 @@ export default function TrackMap({ points, height = 440 }) {
     if (!ref.current || !points || !points.length) return;
     const wgs = points.filter((p) => p && p[0] != null && p[1] != null);
     if (!wgs.length) return;
-    const coords = toGcj02(wgs); // WGS-84 -> GCJ-02，供高德 JS API 与高德栅格瓦片使用
+    const gcj = toGcj02(wgs); // WGS-84 -> GCJ-02，仅高德 JS API 使用
     let cancelled = false;
 
     api.config()
@@ -114,13 +136,13 @@ export default function TrackMap({ points, height = 440 }) {
         if (cancelled) return;
         if (cfg && cfg.amapKey) {
           loadAMap(cfg.amapKey, cfg.amapSecurityCode)
-            .then((AMap) => { if (!cancelled) cleanup.current = initAMap(ref.current, AMap, coords); })
-            .catch(() => { if (!cancelled) cleanup.current = initLeaflet(ref.current, coords); });
+            .then((AMap) => { if (!cancelled) cleanup.current = initAMap(ref.current, AMap, gcj, wgs); })
+            .catch(() => { if (!cancelled) cleanup.current = initLeaflet(ref.current, wgs); });
         } else {
-          cleanup.current = initLeaflet(ref.current, coords);
+          cleanup.current = initLeaflet(ref.current, wgs);
         }
       })
-      .catch(() => { if (!cancelled) cleanup.current = initLeaflet(ref.current, coords); });
+      .catch(() => { if (!cancelled) cleanup.current = initLeaflet(ref.current, wgs); });
 
     return () => { cancelled = true; if (cleanup.current) cleanup.current(); cleanup.current = null; };
   }, [points]);
