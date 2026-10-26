@@ -64,9 +64,15 @@ export default function InteractiveMap({ points, marker, focus, segment, showDot
     map.on('click', onClick);
     if (points.length > 1) map.fitBounds(points, { padding: [40, 40] });
     const t = setTimeout(() => map.invalidateSize(), 80);
+    // Leaflet does not auto-resize with its container: revalidate the map size
+    // whenever the container changes (window resize / layout shift), otherwise
+    // shrinking the browser leaves the map stuck at the old (larger) size.
+    const ro = new ResizeObserver(() => map.invalidateSize());
+    ro.observe(elRef.current);
 
     return () => {
       clearTimeout(t);
+      ro.disconnect();
       map.off('click', onClick);
       map.remove();
       mapRef.current = null; baseRef.current = null; segRef.current = null; markerRef.current = null;
