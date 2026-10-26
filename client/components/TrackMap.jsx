@@ -129,12 +129,15 @@ export default function TrackMap({ points, height = 440 }) {
     const wgs = points.filter((p) => p && p[0] != null && p[1] != null);
     if (!wgs.length) return;
     const gcj = toGcj02(wgs); // WGS-84 -> GCJ-02，仅高德 JS API 使用
+    // 高德对境外(如澳洲)无底图数据且不发 maperror → 境外轨迹直接走全球瓦片，不碰 AMap
+    const inChina = wgs.filter((p) => !outOfChina(p[1], p[0])).length;
+    const isDomestic = inChina / wgs.length > 0.5;
     let cancelled = false;
 
     api.config()
       .then((cfg) => {
         if (cancelled) return;
-        if (cfg && cfg.amapKey) {
+        if (isDomestic && cfg && cfg.amapKey) {
           loadAMap(cfg.amapKey, cfg.amapSecurityCode)
             .then((AMap) => { if (!cancelled) cleanup.current = initAMap(ref.current, AMap, gcj, wgs); })
             .catch(() => { if (!cancelled) cleanup.current = initLeaflet(ref.current, wgs); });
