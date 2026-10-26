@@ -3,23 +3,30 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import Chart from '../components/Chart.jsx';
 import { sportMeta, fmtDate, fmtDuration, num } from '../lib/format.js';
+import { trainingLoad, calendarHeatmap, weekdayHourHeatmap } from '../lib/analysis.js';
+
+const DAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const TL_COLOR = { red: '#ef4444', orange: '#f97316', amber: '#f59e0b', green: '#16a34a' };
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
+  const [acts, setActs] = useState([]);
   const [err, setErr] = useState('');
 
   useEffect(() => {
     api.reports().then(setData).catch((e) => setErr(e.message));
+    api.activities().then(setActs).catch(() => setActs([]));
   }, []);
 
-  const { monthlyBar, pie, hoursLine } = useMemo(() => {
-    if (!data) return { monthlyBar: {}, pie: {}, hoursLine: {} };
+  const view = useMemo(() => {
+    if (!data) return null;
     const months = [...new Set(data.monthly.map((m) => m.month))].sort();
     const sports = [...new Set(data.monthly.map((m) => m.sport))];
     const find = (mo, sp) => {
       const r = data.monthly.find((x) => x.month === mo && x.sport === sp);
       return r ? r.distance_km : 0;
     };
+
     const monthlyBar = {
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
       legend: { bottom: 0, icon: 'roundRect', itemWidth: 12, textStyle: { color: '#6b7688' } },
@@ -38,8 +45,7 @@ export default function Dashboard() {
       tooltip: { trigger: 'item', formatter: '{b}: {c} km ({d}%)' },
       legend: { bottom: 0, icon: 'circle', textStyle: { color: '#6b7688' } },
       series: [{
-        type: 'pie', radius: ['42%', '68%'], center: ['50%', '46%'],
-        avoidLabelOverlap: true,
+        type: 'pie', radius: ['42%', '68%'], center: ['50%', '46%'], avoidLabelOverlap: true,
         itemStyle: { borderColor: '#fff', borderWidth: 2 },
         label: { formatter: '{b}\n{d}%' },
         data: data.totals.filter((t) => t.distance_km > 0).map((t) => ({
@@ -64,20 +70,74 @@ export default function Dashboard() {
         }),
       }],
     };
-    return { monthlyBar, pie, hoursLine };
-  }, [data]);
+
+    // ---- 训练负荷 PMC + 红绿灯 ----
+    const tl = trainingLoad(acts);
+    const pmc = tl.series.length ? {
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['ATL 急性负荷', 'CTL 慢性体能', 'TSB 状态'], bottom: 0, textStyle: { color: '#6b7688' } },
+      grid: { left: 44, right: 18, top: 24, bottom: 40 },
+      xAxis: { type: 'category', data: tl.series.map((s) => s.date), boundaryGap: false, axisLine: { lineStyle: { color: '#e6eaf2' } }, axisLabel: { color: '#6b7688', formatter: (v) => v.slice(5) } },
+      yAxis: { type: 'value', axisLabel: { color: '#6b7688' }, splitLine: { lineStyle: { color: '#eef1f7' } } },
+      series: [
+        { name: 'ATL 急性负荷', type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 2, color: '#f59e0b' }, itemStyle: { color: '#f59e0b' }, data: tl.series.map((s) => s.atl) },
+        { name: 'CTL 慢性体能', type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 2, color: '#4f46e5' }, itemStyle: { color: '#4f46e5' }, data: tl.series.map((s) => s.ctl) },
+        { name: 'TSB 状态', type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 2, color: '#16a34a' }, itemStyle: { color: '#16a34a' }, areaStyle: { color: 'rgba(22,163,74,.08)' }, data: tl.series.map((s) => s.tsb) },
+      ],
+    } : null;
+
+    // ---- 星期 × 时段 热力图 ----
+    const whData = weekdayHourHeatmap(acts);
+    const wh = whData.data.length ? {
+      tooltip: { position: 'top', formatter: (p) => `${DAY_LABELS[p.value[1]]} ${p.value[0]}:00–${p.value[0] + 1}:00<br/>时长 ${p.value[2]} h` },
+      grid: { left: 44, right: 12, top: 12, bottom: 60 },
+      xAxis: { type: 'category', data: Array.from({ length: 24 }, (_, i) => i), splitArea: { show: true }, axisLine: { lineStyle: { color: '#e6eaf2' } }, axisLabel: { color: '#6b7688', interval: 1 } },
+      yAxis: { type: 'category', data: DAY_LABELS, inverse: true, splitArea: { show: true }, axisLine: { lineStyle: { color: '#e6eaf2' } }, axisLabel: { color: '#6b7688' } },
+      visualMap: { min: 0, max: whData.max, calculable: true, orient: 'horizontal', left: 'center', bottom: 0, inRange: { color: ['#eef2ff', '#818cf8', '#4338ca'] }, textStyle: { color: '#6b7688' } },
+      series: [{ type: 'heatmap', data: whData.data, emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,.4)' } } }],
+    } : null;
+
+    // ---- 日历热力图（限最近 12 个月，避免跨度过大） ----
+    const calRaw = calendarHeatmap(acts);
+    let cal = null, calData = null;
+    if (calRaw.data.length && calRaw.max) {
+      const lastD = new Date(calRaw.max + 'T00:00:00Z');
+      const capStart = new Date(lastD); capStart.setUTCDate(capStart.getUTCDate() - 364);
+      const rs = capStart.toISOString().slice(0, 10);
+      const inRange = calRaw.data.filter((d) => d[0] >= rs && d[0] <= calRaw.max);
+      if (inRange.length) {
+        calData = inRange;
+        const maxKm = Math.max(...inRange.map((d) => d[1]), 1);
+        cal = {
+          tooltip: { formatter: (p) => { const [d, km, c, h] = p.value; return `${d}<br/>里程 ${km} km<br/>活动 ${c} 次<br/>时长 ${h} h`; } },
+          visualMap: { min: 0, max: maxKm, calculable: true, orient: 'horizontal', left: 'center', bottom: 0, inRange: { color: ['#eef2ff', '#a5b4fc', '#4f46e5', '#312e81'] }, textStyle: { color: '#6b7688' } },
+          calendar: {
+            range: [rs, calRaw.max], cellSize: ['auto', 14], top: 30, left: 44,
+            itemStyle: { color: 'transparent', borderWidth: 3, borderColor: '#fff' },
+            dayLabel: { color: '#6b7688', nameMap: 'ZH', fontSize: 10 },
+            monthLabel: { color: '#6b7688', nameMap: 'ZH', fontSize: 11 },
+            yearLabel: { show: false }, splitLine: { show: false },
+          },
+          series: [{ type: 'heatmap', coordinateSystem: 'calendar', data: calData.map((d) => [d[0], d[1]]) }],
+        };
+      }
+    }
+
+    return { monthlyBar, pie, hoursLine, pmc, wh, cal, calData, status: tl.status };
+  }, [data, acts]);
 
   if (err) return <div className="empty">⚠️ {err}</div>;
-  if (!data) return <div className="loader"><span className="spin" /> 加载中…</div>;
+  if (!data || !view) return <div className="loader"><span className="spin" /> 加载中…</div>;
 
   const g = data.grand;
+  const { monthlyBar, pie, hoursLine, pmc, wh, cal, status } = view;
 
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>仪表盘</h1>
-          <div className="crumb">训练数据总览与趋势</div>
+          <div className="crumb">训练数据总览、趋势与负荷分析</div>
         </div>
         <Link to="/import" className="btn btn-primary">📥 导入 FIT</Link>
       </div>
@@ -118,10 +178,34 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
+          {/* 训练状态红绿灯 + PMC 指标 */}
+          {status && (
+            <div className="grid charts-2" style={{ marginBottom: 16 }}>
+              <div className="card pad traffic-light" style={{ borderLeft: `4px solid ${TL_COLOR[status.color]}` }}>
+                <h3 className="section-title">训练状态（Traffic Light）</h3>
+                <div className="tl-row">
+                  <span className="tl-dot" style={{ background: TL_COLOR[status.color] }} />
+                  <span className="tl-label" style={{ color: TL_COLOR[status.color] }}>{status.label}</span>
+                </div>
+                <p className="tl-desc">{status.desc}</p>
+                <div className="tl-metrics">
+                  <div className="tl-m"><span>CTL 体能</span><b style={{ color: '#4f46e5' }}>{status.ctl}</b></div>
+                  <div className="tl-m"><span>ATL 疲劳</span><b style={{ color: '#f59e0b' }}>{status.atl}</b></div>
+                  <div className="tl-m"><span>TSB 状态</span><b style={{ color: '#16a34a' }}>{status.tsb > 0 ? '+' : ''}{status.tsb}</b></div>
+                </div>
+              </div>
+              <div className="card pad">
+                <h3 className="section-title">PMC 训练负荷趋势（ATL / CTL / TSB）</h3>
+                {pmc ? <Chart option={pmc} height={230} /> : <div className="empty">数据不足</div>}
+              </div>
+            </div>
+          )}
+
           <div className="card pad" style={{ marginBottom: 16 }}>
             <h3 className="section-title">月度里程构成（按运动类型堆叠）</h3>
             <Chart option={monthlyBar} height={320} />
           </div>
+
           <div className="grid charts-2" style={{ marginBottom: 16 }}>
             <div className="card pad">
               <h3 className="section-title">运动时长趋势（月）</h3>
@@ -130,6 +214,18 @@ export default function Dashboard() {
             <div className="card pad">
               <h3 className="section-title">里程占比</h3>
               <Chart option={pie} height={300} />
+            </div>
+          </div>
+
+          {/* 热力图 */}
+          <div className="grid charts-2" style={{ marginBottom: 16 }}>
+            <div className="card pad">
+              <h3 className="section-title">🕒 训练时段热力图（星期 × 小时）</h3>
+              {wh ? <Chart option={wh} height={300} /> : <div className="empty">暂无足够数据</div>}
+            </div>
+            <div className="card pad">
+              <h3 className="section-title">📅 活动日历热力图（最近 12 个月里程）</h3>
+              {cal ? <Chart option={cal} height={300} /> : <div className="empty">暂无足够数据</div>}
             </div>
           </div>
 
