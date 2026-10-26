@@ -19,7 +19,7 @@
 | 数据库 | SQLite（`node:sqlite`） | 内置 |
 | 前端 | React + Vite | 19 / 7 |
 | 图表 | ECharts | 6 |
-| 地图 | Leaflet | 1.9 |
+| 地图 | 高德地图（AMap JS API v2），无 Key 时回退 Leaflet + OSM | AMap v2 / 1.9 |
 | FIT 解析 | `fit-file-parser` | 6 |
 
 > 选用 Node 内置 `node:sqlite` 是为了在纯国内镜像环境下免原生模块编译，安装零障碍。
@@ -84,6 +84,24 @@ npm run smoke    # 用 JSDOM + 打桩的 echarts/leaflet/fetch 真实渲染 5 �
 npm config set registry https://registry.npmmirror.com
 ```
 
+## 地图配置（高德地图）
+
+轨迹地图默认使用**高德地图（AMap JS API v2）**，Key 从项目根目录 `.env` 的 `amap_key` 读取：
+
+```bash
+# 1. 复制示例配置
+cp .env.example .env
+
+# 2. 填入你的高德 Key
+#    amap_key=你的高德key
+#    amap_security_code=你的安全密钥   # 若控制台要求
+```
+
+- 在 [高德开放平台控制台](https://console.amap.com/dev/key/app) 创建应用 → 添加 Key，类型选 **Web端(JS API)**。
+- 服务启动时通过 `--env-file-if-exists=.env` 自动加载（`dev:server` / `start` 脚本已内置）。
+- 后端经 `GET /api/config` 把 Key 下发给前端，前端据此动态加载高德 JS API 并绘制轨迹。
+- **未配置 Key 时**自动回退到 OpenStreetMap（Leaflet），功能不受影响。
+
 ## REST API
 
 | 方法 | 路径 | 说明 |
@@ -99,5 +117,5 @@ npm config set registry https://registry.npmmirror.com
 ## 说明与限制
 
 - 数据全部保存在本地 `data/activitylog.db`，不上传任何服务器。
-- 地图瓦片来自 OpenStreetMap，国内访问速度视网络而定。
+- 轨迹地图默认走高德（需在 `.env` 配置 `amap_key`）；未配置时回退 OpenStreetMap。高德 Key 属前端可见的 JS API Key，建议在高德控制台为其绑定域名/配额做限制。
 - 演示数据（`npm run seed`）会在活动名称前带有真实运动特征，可随时在「活动记录」中删除。

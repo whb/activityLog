@@ -36,6 +36,7 @@ function qs(params = {}) {
 }
 
 export const api = {
+  config: () => withDemo(() => parse(fetch(base + '/config')), () => ({})),
   activities: (p) => withDemo(() => parse(fetch(base + '/activities' + qs(p))), () => demo.filteredActivities(p)),
   sports: () => withDemo(() => parse(fetch(base + '/activities/sports')), () => demo.sports),
   activity: (id) => withDemo(() => parse(fetch(base + '/activities/' + id)), () => demo.detail(id)),

@@ -9,6 +9,10 @@ data/
 *.sqlite
 *.db
 
+# Env (contains AMap key)
+.env
+!.env.example
+
 # Logs
 *.log
 server.log

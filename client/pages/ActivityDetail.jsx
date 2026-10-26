@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import Chart from '../components/Chart.jsx';
-import LeafletMap from '../components/LeafletMap.jsx';
+import TrackMap from '../components/TrackMap.jsx';
 import { sportMeta, fmtDateTime, fmtDuration, num, tLabel } from '../lib/format.js';
 
 function buildSeries(records, getVal) {
@@ -119,7 +119,7 @@ export default function ActivityDetail() {
 
       <div className="card pad" style={{ marginBottom: 16 }}>
         <h3 className="section-title">轨迹地图</h3>
-        <LeafletMap points={mapPoints} height={440} />
+        <TrackMap points={mapPoints} height={440} />
       </div>
 
       {charts.length ? (

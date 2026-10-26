@@ -176,15 +176,23 @@ app.get('/api/equipment', (req, res) => {
   res.json(rows);
 });
 
+// ---- Runtime config (frontend needs the AMap key) ----
+app.get('/api/config', (req, res) => {
+  res.json({
+    amapKey: process.env.amap_key || '',
+    amapSecurityCode: process.env.amap_security_code || '',
+  });
+});
+
 // ---- Errors ----
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ error: err.message });
 });
 
-// ---- Production static serving ----
+// ---- Static serving (when a production build exists) ----
 const distDir = path.join(__dirname, '..', 'dist');
-if (process.env.NODE_ENV === 'production' && fs.existsSync(distDir)) {
+if (fs.existsSync(distDir)) {
   app.use(express.static(distDir));
   app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.join(distDir, 'index.html')));
 }
