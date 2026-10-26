@@ -58,7 +58,7 @@ global.fetch = async (url) => {
   else if (u.includes('/activities')) body = LIST;
   else if (u.includes('/equipment')) body = EQUIP;
   else body = {};
-  return { ok: true, status: 200, json: async () => body };
+  return { ok: true, status: 200, headers: { get: (k) => (String(k).toLowerCase() === 'content-type' ? 'application/json' : null) }, json: async () => body };
 };
 
 const CASES = [
@@ -103,6 +103,21 @@ async function main() {
     root.unmount();
     container.remove();
   }
+  // Static / no-backend mode: /api returns HTML -> app should fall back to demo data
+  global.fetch = async () => ({ ok: true, status: 200, headers: { get: () => 'text/html' }, json: async () => { throw new Error('not json'); } });
+  {
+    const c = document.createElement('div'); document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => {
+      root.render(<MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<Dashboard />} /></Routes></MemoryRouter>);
+    });
+    let t = '';
+    for (let i = 0; i < 60; i++) { await new Promise((r) => setTimeout(r, 10)); t = c.textContent || ''; if (t.includes('各运动类型累计')) break; }
+    if (!t.includes('各运动类型累计')) throw new Error('FAIL static no-backend fallback');
+    console.log('OK static(no-backend) -> demo data fallback');
+    root.unmount(); c.remove();
+  }
+
   console.log('ALL 5 PAGES RENDER OK (no runtime errors)');
   process.exit(0);
 }

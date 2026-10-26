@@ -1,13 +1,32 @@
 const base = '/api';
+import * as demo from './lib/demoData.js';
 
-async function j(r) {
-  r = await r;
-  if (!r.ok) {
-    let m = r.statusText;
-    try { m = (await r.json()).error || m; } catch { /* ignore */ }
+const NO_BACKEND = Symbol('no-backend');
+
+// Parse a response. Throws NO_BACKEND when the response is not JSON (i.e. no real
+// backend — e.g. a static preview server returning index.html for /api/*).
+async function parse(res) {
+  const ct = (res.headers && res.headers.get ? res.headers.get('content-type') : '') || '';
+  if (!ct.includes('application/json')) throw NO_BACKEND;
+  if (!res.ok) {
+    let m = res.statusText;
+    try { m = (await res.json()).error || m; } catch { /* ignore */ }
     throw new Error(m);
   }
-  return r.json();
+  return res.json();
+}
+
+function isNoBackend(e) {
+  if (e === NO_BACKEND) return true;
+  if (e && e.name === 'TypeError') return true; // fetch network failure
+  return false;
+}
+
+function withDemo(real, fallback) {
+  return real().catch((e) => {
+    if (isNoBackend(e)) return fallback();
+    throw e;
+  });
 }
 
 function qs(params = {}) {
@@ -17,15 +36,20 @@ function qs(params = {}) {
 }
 
 export const api = {
-  activities: (params) => j(fetch(base + '/activities' + qs(params))),
-  sports: () => j(fetch(base + '/activities/sports')),
-  activity: (id) => j(fetch(base + '/activities/' + id)),
-  remove: (id) => j(fetch(base + '/activities/' + id, { method: 'DELETE' })),
-  reports: () => j(fetch(base + '/reports/summary')),
-  equipment: () => j(fetch(base + '/equipment')),
+  activities: (p) => withDemo(() => parse(fetch(base + '/activities' + qs(p))), () => demo.filteredActivities(p)),
+  sports: () => withDemo(() => parse(fetch(base + '/activities/sports')), () => demo.sports),
+  activity: (id) => withDemo(() => parse(fetch(base + '/activities/' + id)), () => demo.detail(id)),
+  remove: (id) => withDemo(() => parse(fetch(base + '/activities/' + id, { method: 'DELETE' })), () => demo.removeActivity(id)),
+  reports: () => withDemo(() => parse(fetch(base + '/reports/summary')), () => demo.reports),
+  equipment: () => withDemo(() => parse(fetch(base + '/equipment')), () => demo.equipment),
   async importFit(file) {
     const fd = new FormData();
     fd.append('file', file);
-    return j(await fetch(base + '/import', { method: 'POST', body: fd }));
+    const res = await fetch(base + '/import', { method: 'POST', body: fd });
+    const ct = (res.headers && res.headers.get ? res.headers.get('content-type') : '') || '';
+    if (!ct.includes('application/json')) {
+      throw new Error('当前为离线/静态模式，无法导入。请启动后端（npm start）后再试。');
+    }
+    return parse(res);
   },
 };
