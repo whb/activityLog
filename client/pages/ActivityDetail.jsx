@@ -4,6 +4,12 @@ import { api } from '../api.js';
 import Chart from '../components/Chart.jsx';
 import TrackMap from '../components/TrackMap.jsx';
 import { sportMeta, fmtDateTime, fmtDuration, num, tLabel } from '../lib/format.js';
+import {
+  powerAnalysis, powerSpikes, climbAnalysis,
+  scatter, histogram, swimStats,
+} from '../lib/analysis.js';
+
+const ZONE_COLORS = ['#16a34a', '#84cc16', '#f59e0b', '#f97316', '#ef4444'];
 
 function buildSeries(records, getVal) {
   const pts = [];
@@ -64,6 +70,64 @@ export default function ActivityDetail() {
   const mapPoints = useMemo(() => {
     if (!data) return [];
     return data.records.filter((r) => r.lat != null && r.lon != null).map((r) => [r.lat, r.lon]);
+  }, [data]);
+
+  // ---- 深度分析（功率/爬升/散点/直方图/游泳） ----
+  const an = useMemo(() => {
+    if (!data) return {};
+    const recs = data.records;
+    const a = data.activity;
+    const hasPower = recs.some((r) => r.power != null && r.power > 0);
+    const pwr = hasPower ? powerAnalysis(recs, null) : null;
+    const spikes = hasPower ? powerSpikes(recs) : [];
+    const climbs = climbAnalysis(recs);
+    const hrSpeed = scatter(recs, 'hr', 'speed');
+    const powerSpeed = hasPower ? scatter(recs, 'power', 'speed') : [];
+    const speedHist = histogram(recs.map((r) => r.speed));
+    const hrHist = histogram(recs.map((r) => r.hr));
+    const isSwim = ['swimming', 'swim'].includes(a.sport);
+    const swim = isSwim ? swimStats(a, recs) : null;
+
+    const axis = (name, unit) => ({
+      name, axisLabel: { color: '#6b7688' }, splitLine: { lineStyle: { color: '#eef1f7' } },
+      nameTextStyle: { color: '#6b7688' },
+    });
+    const scatterOpt = (d, xName, yName, color) => ({
+      tooltip: { trigger: 'item', formatter: (p) => `${xName}: ${p.value[0]}<br/>${yName}: ${p.value[1]}` },
+      grid: { left: 50, right: 16, top: 20, bottom: 44 },
+      xAxis: { type: 'value', ...axis(xName, ''), scale: true },
+      yAxis: { type: 'value', ...axis(yName, ''), scale: true },
+      series: [{ type: 'scatter', data: d, symbolSize: 6, itemStyle: { color, opacity: 0.55 } }],
+    });
+    const histOpt = (h, unit, color) => ({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (p) => `${p[0].name} – ${h.bins[p[0].dataIndex].x1} ${unit}<br/>${p[0].value} 样本` },
+      grid: { left: 44, right: 16, top: 20, bottom: 52 },
+      xAxis: { type: 'category', data: h.bins.map((b) => b.x0), axisLabel: { color: '#6b7688', interval: 2, rotate: 45 }, name: unit, nameTextStyle: { color: '#6b7688' } },
+      yAxis: { type: 'value', name: '样本数', axisLabel: { color: '#6b7688' }, splitLine: { lineStyle: { color: '#eef1f7' } } },
+      series: [{ type: 'bar', data: h.bins.map((b) => b.count), itemStyle: { color }, barMaxWidth: 24 }],
+    });
+
+    return {
+      pwr, spikes, climbs, hrSpeed, powerSpeed, speedHist, hrHist, swim,
+      curveOpt: pwr ? {
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        grid: { left: 48, right: 16, top: 20, bottom: 30 },
+        xAxis: { type: 'category', data: pwr.curve.map((c) => c.label), axisLabel: { color: '#6b7688' }, axisLine: { lineStyle: { color: '#e6eaf2' } } },
+        yAxis: { type: 'value', name: 'W', nameTextStyle: { color: '#6b7688' }, axisLabel: { color: '#6b7688' }, splitLine: { lineStyle: { color: '#eef1f7' } } },
+        series: [{ type: 'bar', data: pwr.curve.map((c) => c.w), itemStyle: { color: '#7c3aed' }, barMaxWidth: 44, label: { show: true, position: 'top', color: '#6b7688' } }],
+      } : null,
+      zoneOpt: pwr ? {
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (p) => `${p[0].name}<br/>${p[0].value}%` },
+        grid: { left: 44, right: 16, top: 20, bottom: 30 },
+        xAxis: { type: 'category', data: pwr.zones.map((z) => z.name), axisLabel: { color: '#6b7688', interval: 0, fontSize: 11 }, axisLine: { lineStyle: { color: '#e6eaf2' } } },
+        yAxis: { type: 'value', name: '%', max: 100, nameTextStyle: { color: '#6b7688' }, axisLabel: { color: '#6b7688' }, splitLine: { lineStyle: { color: '#eef1f7' } } },
+        series: [{ type: 'bar', data: pwr.zones.map((z, i) => ({ value: z.pct, itemStyle: { color: ZONE_COLORS[i] } })), barMaxWidth: 40, label: { show: true, position: 'top', formatter: '{c}%', color: '#6b7688' } }],
+      } : null,
+      hrSpeedOpt: hrSpeed.length > 5 ? scatterOpt(hrSpeed, '心率 (bpm)', '速度 (km/h)', '#ef4444') : null,
+      powerSpeedOpt: powerSpeed.length > 5 ? scatterOpt(powerSpeed, '功率 (W)', '速度 (km/h)', '#7c3aed') : null,
+      speedHistOpt: speedHist ? histOpt(speedHist, 'km/h', '#f59e0b') : null,
+      hrHistOpt: hrHist ? histOpt(hrHist, 'bpm', '#ef4444') : null,
+    };
   }, [data]);
 
   async function remove() {
@@ -133,6 +197,86 @@ export default function ActivityDetail() {
         </div>
       ) : (
         <div className="card pad empty">该活动没有可绘制的时序指标数据</div>
+      )}
+
+      {/* ===== 深度分析（复刻 ActivityLog2） ===== */}
+      {an.swim && (
+        <div className="card pad" style={{ marginBottom: 16 }}>
+          <h3 className="section-title">🏊 游泳指标</h3>
+          <div className="tiles">
+            {an.swim.pace != null && (
+              <div className="tile"><div className="lab">配速</div><div className="val">{Math.floor(an.swim.pace / 60)}:{String(Math.round(an.swim.pace % 60)).padStart(2, '0')}<span className="unit">/100m</span></div></div>
+            )}
+            <div className="tile"><div className="lab">距离</div><div className="val">{num(a.distance_km, 2)}<span className="unit">km</span></div></div>
+            <div className="tile"><div className="lab">平均心率</div><div className="val">{a.avg_hr || '—'}<span className="unit">bpm</span></div></div>
+            {an.swim.swolf != null && <div className="tile"><div className="lab">SWOLF</div><div className="val">{an.swim.swolf}</div></div>}
+          </div>
+        </div>
+      )}
+
+      {an.pwr && (
+        <div className="card pad" style={{ marginBottom: 16 }}>
+          <h3 className="section-title">⚙️ 功率分析（Aerolab 风格）</h3>
+          <div className="tiles" style={{ marginBottom: 14 }}>
+            <div className="tile"><div className="lab">平均功率</div><div className="val">{an.pwr.avg}<span className="unit">W</span></div></div>
+            <div className="tile"><div className="lab">归一化功率 NP</div><div className="val">{an.pwr.np}<span className="unit">W</span></div></div>
+            <div className="tile"><div className="lab">强度因子 IF</div><div className="val">{an.pwr.ifac}</div></div>
+            <div className="tile"><div className="lab">TSS</div><div className="val">{an.pwr.tss}</div></div>
+          </div>
+          <div className="grid charts-2">
+            <div><h4 className="sub-title">功率曲线（最佳平均功率）</h4><Chart option={an.curveOpt} height={230} /></div>
+            <div><h4 className="sub-title">分区时间分布（Z1–Z5）</h4><Chart option={an.zoneOpt} height={230} /></div>
+          </div>
+          <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>注：未配置 FTP 时，IF 以该次平均功率为基准估算。</p>
+        </div>
+      )}
+
+      {an.spikes.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="pad" style={{ paddingBottom: 6 }}><h3 className="section-title" style={{ margin: 0 }}>⚡ 功率尖峰（&gt;1.5× 平均、持续 ≥3s，Top {an.spikes.length}）</h3></div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>开始</th><th>持续</th><th>峰值 (W)</th><th>均值 (W)</th></tr></thead>
+              <tbody>
+                {an.spikes.map((s, i) => (<tr key={i}><td>{tLabel(s.start)}</td><td>{s.dur}s</td><td><b>{s.peak}</b></td><td>{s.avg}</td></tr>))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {an.climbs.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="pad" style={{ paddingBottom: 6 }}><h3 className="section-title" style={{ margin: 0 }}>⛰️ 爬升分析（{an.climbs.length} 处）</h3></div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>长度 (m)</th><th>爬升 (m)</th><th>平均坡度</th><th>最大坡度</th><th>累积坡度</th><th>起点海拔</th></tr></thead>
+              <tbody>
+                {an.climbs.map((c, i) => (
+                  <tr key={i}>
+                    <td>{c.length}</td><td><b>{c.gain}</b></td>
+                    <td>{c.avgGrade}%</td><td className="climb-grade">{c.maxGrade}%</td>
+                    <td>{c.sumGrade}%</td><td>{c.alt} m</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {(an.hrSpeedOpt || an.powerSpeedOpt) && (
+        <div className="grid charts-2" style={{ marginBottom: 16 }}>
+          {an.hrSpeedOpt && <div className="card pad"><h3 className="section-title">❤️ 心率 × 速度 散点</h3><Chart option={an.hrSpeedOpt} height={280} /></div>}
+          {an.powerSpeedOpt && <div className="card pad"><h3 className="section-title">⚙️ 功率 × 速度 散点</h3><Chart option={an.powerSpeedOpt} height={280} /></div>}
+        </div>
+      )}
+
+      {(an.speedHistOpt || an.hrHistOpt) && (
+        <div className="grid charts-2" style={{ marginBottom: 16 }}>
+          {an.speedHistOpt && <div className="card pad"><h3 className="section-title">⚡ 速度分布直方图</h3><Chart option={an.speedHistOpt} height={280} /></div>}
+          {an.hrHistOpt && <div className="card pad"><h3 className="section-title">❤️ 心率分布直方图</h3><Chart option={an.hrHistOpt} height={280} /></div>}
+        </div>
       )}
     </div>
   );
