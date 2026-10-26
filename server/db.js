@@ -55,6 +55,33 @@ CREATE TABLE IF NOT EXISTS records (
   temperature REAL
 );
 
+CREATE TABLE IF NOT EXISTS laps (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  activity_id      INTEGER NOT NULL,
+  idx              INTEGER,
+  start_t          INTEGER,
+  end_t            INTEGER,
+  duration_s       INTEGER,
+  start_distance_m REAL,
+  end_distance_m   REAL,
+  distance_m       REAL,
+  start_lat        REAL,
+  start_lon        REAL,
+  end_lat          REAL,
+  end_lon          REAL,
+  avg_speed        REAL,
+  max_speed        REAL,
+  avg_hr           INTEGER,
+  max_hr           INTEGER,
+  avg_power        INTEGER,
+  max_power        INTEGER,
+  elevation_gain   REAL,
+  elevation_loss   REAL,
+  avg_cadence      INTEGER,
+  calories         INTEGER,
+  lap_trigger      TEXT
+);
+
 CREATE TABLE IF NOT EXISTS equipment (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   serial_number  TEXT,
@@ -72,6 +99,7 @@ CREATE TABLE IF NOT EXISTS activity_equipment (
 );
 
 CREATE INDEX IF NOT EXISTS idx_records_activity ON records(activity_id);
+CREATE INDEX IF NOT EXISTS idx_laps_activity ON laps(activity_id);
 CREATE INDEX IF NOT EXISTS idx_activities_start ON activities(start_time);
 `);
 

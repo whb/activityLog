@@ -64,7 +64,10 @@ app.get('/api/activities/:id', (req, res) => {
   const records = db.prepare(
     'SELECT t, lat, lon, altitude, speed, distance_m, hr, cadence, power, temperature FROM records WHERE activity_id = ? ORDER BY t ASC, id ASC'
   ).all(id);
-  res.json({ activity: act, records });
+  const laps = db.prepare(
+    'SELECT * FROM laps WHERE activity_id = ? ORDER BY idx ASC, id ASC'
+  ).all(id).map((l) => ({ ...l, trigger: l.lap_trigger }));
+  res.json({ activity: act, records, laps });
 });
 
 // ---- Delete ----
@@ -74,6 +77,7 @@ app.delete('/api/activities/:id', (req, res) => {
   if (!act) return res.status(404).json({ error: 'Not found' });
   db.exec('BEGIN');
   db.prepare('DELETE FROM records WHERE activity_id = ?').run(id);
+  db.prepare('DELETE FROM laps WHERE activity_id = ?').run(id);
   db.prepare('DELETE FROM activity_equipment WHERE activity_id = ?').run(id);
   db.prepare('DELETE FROM activities WHERE id = ?').run(id);
   db.exec('COMMIT');

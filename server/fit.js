@@ -37,6 +37,50 @@ function relTime(rec, startTime) {
   return null;
 }
 
+// Normalize the parser's `laps` array into a compact, DB-ready shape.
+// start/end distance are accumulated across laps (FIT lap messages carry per-lap
+// distance only); start/end time are derived relative to the activity start.
+function parseLaps(data, startTime) {
+  const raw = Array.isArray(data.laps) ? data.laps : [];
+  if (!raw.length) return [];
+  const base = startTime ? new Date(startTime).getTime() : null;
+  const laps = [];
+  let acc = 0;
+  raw.forEach((lp, i) => {
+    const startT = base && lp.start_time
+      ? Math.max(0, Math.round((new Date(lp.start_time).getTime() - base) / 1000))
+      : (i === 0 ? 0 : null);
+    const dur = num(lp.total_elapsed_time ?? lp.total_timer_time);
+    const distM = num(lp.total_distance) || 0;
+    laps.push({
+      index: i + 1,
+      start_t: startT,
+      duration_s: dur != null ? Math.round(dur) : null,
+      end_t: startT != null && dur != null ? Math.round(startT + dur) : null,
+      start_distance_m: acc,
+      end_distance_m: acc + distM,
+      distance_m: distM,
+      start_lat: num(lp.start_position_lat),
+      start_lon: num(lp.start_position_long ?? lp.start_position_lon),
+      end_lat: num(lp.end_position_lat),
+      end_lon: num(lp.end_position_long ?? lp.end_position_lon),
+      avg_speed: num(lp.avg_speed),
+      max_speed: num(lp.max_speed),
+      avg_hr: lp.avg_heart_rate != null ? Math.round(lp.avg_heart_rate) : null,
+      max_hr: lp.max_heart_rate != null ? Math.round(lp.max_heart_rate) : null,
+      avg_power: num(lp.avg_power),
+      max_power: num(lp.max_power),
+      elevation_gain: num(lp.total_ascent),
+      elevation_loss: num(lp.total_descent),
+      avg_cadence: lp.avg_cadence != null ? Math.round(lp.avg_cadence) : null,
+      calories: num(lp.total_calories),
+      trigger: lp.lap_trigger || null,
+    });
+    acc += distM;
+  });
+  return laps;
+}
+
 async function parseFit(buffer, sourceFile) {
   const parser = new FitParser({
     mode: 'list',
@@ -181,7 +225,9 @@ async function parseFit(buffer, sourceFile) {
 
   const equipment = (serial || product) ? { serial_number: serial, product_name: product, manufacturer, duration_s: durationS } : null;
 
-  return { summary, samples, equipment };
+  const laps = parseLaps(data, startTime);
+
+  return { summary, samples, equipment, laps };
 }
 
 module.exports = { parseFit };

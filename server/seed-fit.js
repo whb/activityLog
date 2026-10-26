@@ -27,6 +27,7 @@ async function main() {
   try {
     if (count > 0) {
       db.exec('DELETE FROM records');
+      db.exec('DELETE FROM laps');
       db.exec('DELETE FROM activity_equipment');
       db.exec('DELETE FROM activities');
       db.exec('DELETE FROM equipment');

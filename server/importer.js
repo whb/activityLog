@@ -54,6 +54,23 @@ function insertParsed(parsed) {
     insRec.run(activityId, r.t, r.lat, r.lon, r.altitude, r.speed, r.distance_m, r.hr, r.cadence, r.power, r.temperature);
   }
 
+  if (Array.isArray(parsed.laps) && parsed.laps.length) {
+    const insLap = db.prepare(`
+      INSERT INTO laps (
+        activity_id, idx, start_t, end_t, duration_s, start_distance_m, end_distance_m, distance_m,
+        start_lat, start_lon, end_lat, end_lon, avg_speed, max_speed, avg_hr, max_hr,
+        avg_power, max_power, elevation_gain, elevation_loss, avg_cadence, calories, lap_trigger
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `);
+    for (const l of parsed.laps) {
+      insLap.run(
+        activityId, l.index, l.start_t, l.end_t, l.duration_s, l.start_distance_m, l.end_distance_m, l.distance_m,
+        l.start_lat, l.start_lon, l.end_lat, l.end_lon, l.avg_speed, l.max_speed, l.avg_hr, l.max_hr,
+        l.avg_power, l.max_power, l.elevation_gain, l.elevation_loss, l.avg_cadence, l.calories, l.trigger
+      );
+    }
+  }
+
   const when = s.start_time || new Date().toISOString();
   const eqId = upsertEquipment(parsed.equipment, when);
   if (eqId) db.prepare('INSERT OR IGNORE INTO activity_equipment (activity_id, equipment_id) VALUES (?,?)').run(activityId, eqId);
