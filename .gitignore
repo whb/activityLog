@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local data (SQLite DB, generated)
+data/
+*.sqlite
+*.db
+
+# Logs
+*.log
+server.log
+
+# Test artifacts
+scripts/.smoke-bundle.cjs
+
+# Misc
+.DS_Store
+tmp_*
+*.fit
