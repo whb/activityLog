@@ -36,10 +36,12 @@
 │  └─ styles.css
 ├─ server/
 │  ├─ index.js        # Express 服务 + REST API + 生产静态托管
-│  ├─ fit.js          # FIT 解析 → 规范化活动 + 记录点
+│  ├─ fit.js          # FIT 解析 → 规范化活动 + 记录点（含多运动/设备识别）
+│  ├─ importer.js     # 共享入库逻辑（API 与 seed 复用，保证一致）
 │  ├─ db.js           # SQLite 建表
-│  └─ seed.js         # 演示数据
-├─ scripts/           # JSDOM 渲染冒烟测试
+│  ├─ seed.js         # 合成演示数据
+│  └─ seed-fit.js     # 导入真实 ActivityLog2 测试 .FIT
+├─ scripts/           # JSDOM 渲染冒烟测试 / 下载测试数据
 ├─ data/              # SQLite 数据库（运行期生成，已忽略）
 ├─ index.html
 ├─ vite.config.js
@@ -69,6 +71,22 @@ npm start        # 以生产模式启动，Express 同时托管 dist 与 API（:
 ```
 
 访问 http://localhost:3001 。
+
+### 载入真实测试数据（ActivityLog2 官方 .FIT）
+
+用上游 [ActivityLog2 仓库](https://github.com/alex-hhh/ActivityLog2/tree/master/test/test-data)的 9 个真实
+Garmin / Cydynamics `.FIT` 文件生成 demo（3 骑行 / 2 跑步 / 3 游泳 / 1 铁三，共约 168km，含真实 GPS 轨迹）。
+`.FIT` 存于 `data/import/`（已 gitignore，按需下载）：
+
+```bash
+node scripts/download-test-data.js   # 从 GitHub API 下载 9 个 .FIT 到 data/import/
+npm run seed:fit                     # 解析并全部入库（已有数据会跳过）
+npm run seed:fit -- --force          # 清空现有数据后重新导入
+```
+
+> 说明：多运动文件（如铁三）会按 `auto_multi_sport` 正确聚合全程距离/时长并归类为 `triathlon`；
+> 设备从 `device_infos` 的 creator 记录解析出真实产品名（如 Forerunner 920 XT）。
+> 轨迹坐标多为澳大利亚（珀斯），位于中国境外，GCJ-02 偏移换算会自动跳过，地图按原始 WGS-84 显示。
 
 ### 前端渲染冒烟测试
 
