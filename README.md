@@ -4,10 +4,16 @@
 
 ## 功能
 
-- 📥 **FIT 文件导入**：支持 Garmin / Polar / Suunto 等设备的 `.fit` 文件，批量导入，数据存入本地 SQLite。
+- 📥 **FIT 文件导入**：支持 Garmin / Polar / Suunto 等设备的 `.fit` 文件，批量导入，数据存入本地 SQLite。多运动（铁三）文件自动聚合为全程记录。
 - 📊 **仪表盘**：总里程 / 总时长 / 活动数等概览，月度里程构成（按运动类型堆叠）、运动时长趋势、里程占比、各类型累计。
+- 🚦 **训练状态（Traffic Light）+ PMC 训练负荷**：按 Banister TRIMP 计算每日负荷，指数加权得到 ATL（急性）/ CTL（慢性体能）/ TSB（状态），并以红绿灯给出"过度疲劳 / 偏累 / 竞技状态 / 恢复良好"建议。
+- 🔥 **训练热力图**：① 星期 × 小时时段热力图；② 日历热力图（最近 12 个月每日里程，贡献图风格）。
 - 🏃 **活动列表**：按运动类型、日期区间、关键词筛选，支持删除。
-- 📈 **活动详情**：海拔 / 距离 / 速度 / 心率 / 功率 / 踏频 / 温度等时序图表（ECharts），轨迹地图（Leaflet + OpenStreetMap），关键指标卡片。
+- 📈 **活动详情时序图**：海拔 / 距离 / 速度 / 心率 / 功率 / 踏频 / 温度（ECharts）+ 轨迹地图 + 关键指标卡片。
+- ⚙️ **功率分析（Aerolab 风格）**：归一化功率 NP、强度因子 IF、TSS、功率曲线（1s/5s/1min/5min/20min）、Z1–Z5 分区时间分布、功率尖峰（Power Spikes）表。
+- ⛰️ **爬升分析（Climb Analysis）**：自动检测爬升段，列出长度 / 爬升 / 平均坡度 / 最大坡度 / 累积坡度。
+- 📊 **散点图 & 直方图**：心率×速度、功率×速度散点；速度分布、心率分布直方图。
+- 🏊 **游泳指标**：配速（/100m）、距离、平均心率等（SWOLF 需划次数据，采集到后自动展示）。
 - 🔧 **装备**：自动识别 FIT 中的设备信息，累计每台设备使用时长与关联活动数。
 
 ## 技术栈
@@ -107,21 +113,25 @@ npm config set registry https://registry.npmmirror.com
 
 ## 地图配置（高德地图）
 
-轨迹地图默认使用**高德地图（AMap JS API v2）**，Key 从项目根目录 `.env` 的 `amap_key` 读取：
+轨迹地图按**坐标位置智能路由**，保证国内外轨迹都能显示：
+
+- **国内轨迹**：若 `.env` 配置了 `amap_key`，使用**高德地图（AMap JS API v2）**（GCJ-02 坐标，交互/缩放控件更完善）；Key 失效时自动降级。
+- **境外轨迹**（如澳洲、欧洲）：高德对其无底图数据，直接使用 **ArcGIS 世界街道图瓦片**（Leaflet，WGS-84 坐标，无需 Key、全球覆盖、国内可达）。
+- **无 Key**：全部使用 ArcGIS 世界瓦片，功能不受影响。
 
 ```bash
 # 1. 复制示例配置
 cp .env.example .env
 
-# 2. 填入你的高德 Key
+# 2. 填入你的高德 Key（仅用于国内轨迹，可留空）
 #    amap_key=你的高德key
 #    amap_security_code=你的安全密钥   # 若控制台要求
 ```
 
-- 在 [高德开放平台控制台](https://console.amap.com/dev/key/app) 创建应用 → 添加 Key，类型选 **Web端(JS API)**。
+- 在 [高德开放平台控制台](https://console.amap.com/dev/key/app) 创建应用 → 添加 Key，类型选 **Web端(JS API)**，域名白名单可加 `localhost`（或留空不限制）。
 - 服务启动时通过 `--env-file-if-exists=.env` 自动加载（`dev:server` / `start` 脚本已内置）。
 - 后端经 `GET /api/config` 把 Key 下发给前端，前端据此动态加载高德 JS API 并绘制轨迹。
-- **未配置 Key 时**自动回退到 OpenStreetMap（Leaflet），功能不受影响。
+- 坐标自动做 WGS-84 ↔ GCJ-02 换算（仅国内生效），避免轨迹偏移。
 
 ## REST API
 
