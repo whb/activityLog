@@ -82,7 +82,10 @@ Garmin / Cydynamics `.FIT` 文件生成 demo（3 骑行 / 2 跑步 / 3 游泳 / 
 node scripts/download-test-data.js   # 从 GitHub API 下载 9 个 .FIT 到 data/import/
 npm run seed:fit                     # 解析并全部入库（已有数据会跳过）
 npm run seed:fit -- --force          # 清空现有数据后重新导入
+npm run gen:demo                     # 把库里数据同步到内置示例 client/lib/demoData.js
 ```
+
+> `gen:demo` 让「无后端的纯静态预览」也显示与后端一致的真实数据（`demoData.js` 为生成物）。
 
 > 说明：多运动文件（如铁三）会按 `auto_multi_sport` 正确聚合全程距离/时长并归类为 `triathlon`；
 > 设备从 `device_infos` 的 creator 记录解析出真实产品名（如 Forerunner 920 XT）。

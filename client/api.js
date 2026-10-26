@@ -6,6 +6,7 @@ const NO_BACKEND = Symbol('no-backend');
 // Parse a response. Throws NO_BACKEND when the response is not JSON (i.e. no real
 // backend — e.g. a static preview server returning index.html for /api/*).
 async function parse(res) {
+  res = await res; // fetch() 返回 Promise；解包后再读 headers/ok
   const ct = (res.headers && res.headers.get ? res.headers.get('content-type') : '') || '';
   if (!ct.includes('application/json')) throw NO_BACKEND;
   if (!res.ok) {
