@@ -44,7 +44,12 @@ const LIST = [
   { id: 1, name: 'Morning Trail Run', sport: 'running', start_time: '2026-03-08T07:00:00Z', distance_km: 10.2, duration_s: 3120, avg_speed: 11.8, avg_hr: 150, elevation_gain: 86 },
   { id: 2, name: 'Weekend Ride', sport: 'cycling', start_time: '2026-03-15T06:30:00Z', distance_km: 62.5, duration_s: 7920, avg_speed: 28.4, avg_hr: 139, elevation_gain: 486 },
 ];
-const DETAIL = { activity: LIST[0], records: recs(12) };
+const LAPS = [
+  { index: 1, start_t: 0, duration_s: 240, start_distance_m: 0, end_distance_m: 400, distance_m: 400, avg_speed: 11.1, elevation_gain: 8, avg_hr: 140, avg_power: 200 },
+  { index: 2, start_t: 240, duration_s: 240, start_distance_m: 400, end_distance_m: 800, distance_m: 400, avg_speed: 12.2, elevation_gain: 10, avg_hr: 148, avg_power: 220 },
+  { index: 3, start_t: 480, duration_s: 240, start_distance_m: 800, end_distance_m: 1100, distance_m: 300, avg_speed: 13.3, elevation_gain: 6, avg_hr: 155, avg_power: 240 },
+];
+const DETAIL = { activity: LIST[0], records: recs(12), laps: LAPS };
 const EQUIP = [{ id: 1, serial_number: 'FR265-8842', product_name: 'Forerunner 265', manufacturer: 'Garmin', usage_hours: 3.02, first_seen: '2026-03-08', last_seen: '2026-04-05', activity_count: 2 }];
 
 const fetchCalls = [];

@@ -19,6 +19,7 @@ server.log
 
 # Test artifacts
 scripts/.smoke-bundle.cjs
+scripts/.real-map-bundle.cjs
 
 # WorkBuddy workspace data
 .workbuddy/

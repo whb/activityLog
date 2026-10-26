@@ -1,3 +1,3 @@
 export function init() {
-  return { setOption() {}, resize() {}, dispose() {}, on() {}, off() {} };
+  return { setOption() {}, resize() {}, dispose() {}, on() {}, off() {}, isDisposed: () => false };
 }
