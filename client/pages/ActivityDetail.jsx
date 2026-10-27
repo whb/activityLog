@@ -11,6 +11,18 @@ import {
 
 const ZONE_COLORS = ['#16a34a', '#84cc16', '#f59e0b', '#f97316', '#ef4444'];
 
+// Time-series metrics. Each drives both a selectable card below AND (when selected)
+// the switchable profile chart up top (which keeps its distance x-axis for map linkage).
+const METRIC_DEFS = [
+  { key: 'alt',  name: '海拔', icon: '⛰️', unit: 'm',    color: '#16a34a', area: true,  getVal: (r) => r.altitude },
+  { key: 'dist', name: '距离', icon: '📏', unit: 'km',   color: '#4f46e5', area: true,  getVal: (r) => (r.distance_m != null ? r.distance_m / 1000 : null) },
+  { key: 'spd',  name: '速度', icon: '⚡', unit: 'km/h', color: '#f59e0b', area: false, getVal: (r) => r.speed },
+  { key: 'hr',   name: '心率', icon: '❤️', unit: 'bpm',  color: '#ef4444', area: false, getVal: (r) => r.hr },
+  { key: 'pwr',  name: '功率', icon: '⚙️', unit: 'W',    color: '#7c3aed', area: true,  getVal: (r) => r.power },
+  { key: 'cad',  name: '踏频', icon: '🚴', unit: 'spm',  color: '#06b6d4', area: false, getVal: (r) => r.cadence },
+  { key: 'tmp',  name: '温度', icon: '🌡️', unit: '°C',  color: '#0ea5e9', area: false, getVal: (r) => r.temperature },
+];
+
 function buildSeries(records, getVal) {
   const pts = [];
   for (const r of records) {
@@ -25,6 +37,7 @@ export default function ActivityDetail() {
   const nav = useNavigate();
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
+  const [selectedKey, setSelectedKey] = useState('alt');
 
   useEffect(() => {
     setData(null); setErr('');
@@ -34,38 +47,35 @@ export default function ActivityDetail() {
   const charts = useMemo(() => {
     if (!data) return [];
     const recs = data.records;
-    const has = (f) => recs.some((r) => r[f] != null && isFinite(r[f]));
     const xaxis = {
       type: 'value', min: 'dataMin', max: 'dataMax',
       axisLabel: { formatter: (v) => tLabel(v), color: '#6b7688' },
       splitLine: { show: false }, axisLine: { lineStyle: { color: '#e6eaf2' } },
     };
-    const base = (color, name, unit, area) => ({
-      tooltip: { trigger: 'axis', valueFormatter: (v) => (v == null ? '' : v + ' ' + unit), formatter: (ps) => `${name}\n${tLabel(ps[0]?.value[0])} · ${ps[0]?.value[1]} ${unit}` },
+    const build = (def) => ({
+      tooltip: { trigger: 'axis', valueFormatter: (v) => (v == null ? '' : v + ' ' + def.unit), formatter: (ps) => `${def.name}\n${tLabel(ps[0]?.value[0])} · ${ps[0]?.value[1]} ${def.unit}` },
       grid: { left: 48, right: 16, top: 30, bottom: 40 },
       xAxis: xaxis,
-      yAxis: { type: 'value', name: unit, nameTextStyle: { color: '#6b7688', align: 'left' }, scale: true, splitLine: { lineStyle: { color: '#eef1f7' } }, axisLabel: { color: '#6b7688' } },
+      yAxis: { type: 'value', name: def.unit, nameTextStyle: { color: '#6b7688', align: 'left' }, scale: true, splitLine: { lineStyle: { color: '#eef1f7' } }, axisLabel: { color: '#6b7688' } },
       series: [{
         type: 'line', smooth: false, showSymbol: false, sampling: 'lttb', data: [],
-        lineStyle: { width: 2, color }, itemStyle: { color },
-        areaStyle: area ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: color + '44' }, { offset: 1, color: color + '05' }] } } : undefined,
+        lineStyle: { width: 2, color: def.color }, itemStyle: { color: def.color },
+        areaStyle: def.area ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: def.color + '44' }, { offset: 1, color: def.color + '05' }] } } : undefined,
       }],
     });
-    const make = (key, getVal, color, name, unit, area) => {
-      const opt = base(color, name, unit, area);
-      opt.series[0].data = buildSeries(recs, getVal);
-      return { key, name, icon: { 海拔: '⛰️', 速度: '⚡', 心率: '❤️', 功率: '⚙️', 踏频: '🚴', 温度: '🌡️', 距离: '📏' }[name] || '📈', opt, count: opt.series[0].data.length };
-    };
     const out = [];
-    if (has('altitude')) out.push(make('alt', (r) => r.altitude, '#16a34a', '海拔', 'm', true));
-    if (has('distance_m')) out.push(make('dist', (r) => r.distance_m / 1000, '#4f46e5', '距离', 'km', true));
-    if (has('speed')) out.push(make('spd', (r) => r.speed, '#f59e0b', '速度', 'km/h', false));
-    if (has('hr')) out.push(make('hr', (r) => r.hr, '#ef4444', '心率', 'bpm', false));
-    if (has('power')) out.push(make('pwr', (r) => r.power, '#7c3aed', '功率', 'W', true));
-    if (has('cadence')) out.push(make('cad', (r) => r.cadence, '#06b6d4', '踏频', 'spm', false));
-    if (has('temperature')) out.push(make('tmp', (r) => r.temperature, '#0ea5e9', '温度', '°C', false));
+    for (const def of METRIC_DEFS) {
+      const opt = build(def);
+      opt.series[0].data = buildSeries(recs, def.getVal);
+      const count = opt.series[0].data.length;
+      if (count) out.push({ ...def, opt, count });
+    }
     return out;
   }, [data]);
+
+  // The selected metric drives the switchable profile chart up top. Falls back to
+  // the first available metric if the current selection is not present for this activity.
+  const selectedDef = charts.find((c) => c.key === selectedKey) || charts[0] || null;
 
   // ---- 深度分析（功率/爬升/散点/直方图/游泳） ----
   const an = useMemo(() => {
@@ -144,8 +154,8 @@ export default function ActivityDetail() {
     { lab: '最高速度', val: a.max_speed != null ? num(a.max_speed) : '—', unit: 'km/h' },
     { lab: '平均心率', val: a.avg_hr != null ? a.avg_hr : '—', unit: 'bpm' },
     { lab: '最高心率', val: a.max_hr != null ? a.max_hr : '—', unit: 'bpm' },
-    { lab: '平均功率', val: a.avg_power != null ? a.avg_power : '—', unit: 'W' },
-    { lab: '最高功率', val: a.max_power != null ? a.max_power : '—', unit: 'W' },
+    { lab: '平均功率', val: a.avg_power != null ? num(a.avg_power) : '—', unit: 'W' },
+    { lab: '最高功率', val: a.max_power != null ? num(a.max_power) : '—', unit: 'W' },
     { lab: '总爬升', val: a.elevation_gain != null ? Math.round(a.elevation_gain) : '—', unit: 'm' },
     { lab: '总下降', val: a.elevation_loss != null ? Math.round(a.elevation_loss) : '—', unit: 'm' },
     { lab: '平均踏频', val: a.avg_cadence != null ? a.avg_cadence : '—', unit: 'spm' },
@@ -177,13 +187,18 @@ export default function ActivityDetail() {
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <LinkedCharts key={id} activity={a} records={data.records} laps={data.laps} />
+        <LinkedCharts key={id} activity={a} records={data.records} laps={data.laps} metric={selectedDef || METRIC_DEFS[0]} />
       </div>
 
       {charts.length ? (
-        <div className="grid charts-3">
+        <div className="grid charts-3" style={{ marginBottom: 16 }}>
           {charts.map((c) => (
-            <div className="card pad" key={c.key}>
+            <div
+              key={c.key}
+              className={'card pad metric-card' + (selectedDef && c.key === selectedDef.key ? ' selected' : '')}
+              onClick={() => setSelectedKey(c.key)}
+              title="点击：在上方剖面图中查看该指标"
+            >
               <h3 className="section-title">{c.icon} {c.name} <span className="muted" style={{ fontSize: 12, fontWeight: 500 }}>· {c.count} 点</span></h3>
               <Chart option={c.opt} height={240} />
             </div>

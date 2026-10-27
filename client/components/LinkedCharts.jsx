@@ -5,6 +5,8 @@ import { tLabel, num } from '../lib/format.js';
 
 const LAP_COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
 const CUR_COLOR = '#e11d48';
+// Fallback for the switchable profile chart (used when no metric is passed / no data).
+const DEFAULT_METRIC = { key: 'alt', name: '海拔', icon: '⛰️', unit: 'm', color: '#16a34a', getVal: (r) => r.altitude };
 
 // Small inline SVG speed sparkline (no extra chart instance) for the map info panel.
 function SpeedSpark({ records, idx }) {
@@ -23,7 +25,7 @@ function SpeedSpark({ records, idx }) {
   );
 }
 
-export default function LinkedCharts({ activity, records, laps }) {
+export default function LinkedCharts({ activity, records, laps, metric = DEFAULT_METRIC }) {
   const N = records.length;
   const [selIdx, setSelIdx] = useState(0);
   const [selLap, setSelLap] = useState(null);
@@ -35,34 +37,40 @@ export default function LinkedCharts({ activity, records, laps }) {
   const recordsRef = useRef(records);
   recordsRef.current = records;
 
-  // distance -> index lookup (records are ordered by t; distance_m cumulative)
-  const distIndex = useMemo(() => {
+  // time -> index lookup (records are ordered by t ASC) — used to map the profile
+  // chart's time x-value back to a record, which drives the map marker.
+  const timeIndex = useMemo(() => {
     const arr = [];
     for (let i = 0; i < records.length; i++) {
-      const d = records[i].distance_m;
-      if (d != null && isFinite(d)) arr.push([d, i]);
+      const t = records[i].t;
+      if (t != null && isFinite(t)) arr.push([t, i]);
     }
     return arr;
   }, [records]);
 
-  const idxAtDist = useCallback((distM) => {
-    const arr = distIndex;
-    if (!arr.length || distM == null || !isFinite(distM)) return 0;
+  const idxAtTime = useCallback((t) => {
+    const arr = timeIndex;
+    if (!arr.length || t == null || !isFinite(t)) return 0;
     let lo = 0, hi = arr.length - 1;
-    while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid][0] < distM) lo = mid + 1; else hi = mid; }
-    if (lo > 0) { const a = arr[lo - 1][0], b = arr[lo][0]; return Math.abs(a - distM) <= Math.abs(b - distM) ? arr[lo - 1][1] : arr[lo][1]; }
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid][0] < t) lo = mid + 1; else hi = mid; }
+    if (lo > 0) { const a = arr[lo - 1][0], b = arr[lo][0]; return Math.abs(a - t) <= Math.abs(b - t) ? arr[lo - 1][1] : arr[lo][1]; }
     return arr[lo][1];
-  }, [distIndex]);
+  }, [timeIndex]);
 
   const points = useMemo(() => records.filter((r) => r.lat != null && r.lon != null).map((r) => [r.lat, r.lon]), [records]);
   const hasGps = points.length > 0;
 
-  const elevSeries = useMemo(() => {
+  // Profile series: [time, <selected metric value>] — SAME x/y axes as the selectable
+  // metric cards below. The metric is swappable via the `metric` prop.
+  const series = useMemo(() => {
     const out = [];
-    for (const r of records) if (r.distance_m != null && r.altitude != null && isFinite(r.distance_m) && isFinite(r.altitude)) out.push([+(r.distance_m / 1000).toFixed(3), r.altitude]);
+    for (const r of records) {
+      const v = metric.getVal(r);
+      if (v != null && isFinite(v)) out.push([r.t != null ? r.t : out.length, +v]);
+    }
     return out;
-  }, [records]);
-  const hasAlt = elevSeries.length > 0;
+  }, [records, metric]);
+  const hasSeries = series.length > 0;
 
   const cur = records[selIdx] || null;
 
@@ -89,87 +97,83 @@ export default function LinkedCharts({ activity, records, laps }) {
 
   const marker = (cur && cur.lat != null && cur.lon != null) ? { lat: cur.lat, lon: cur.lon } : null;
 
+  // Lap bands drawn on the (time) x-axis, highlighting the selected lap.
   const lapBands = useMemo(() => {
     if (!laps || !laps.length) return [];
     return laps.map((l, i) => {
       const c = LAP_COLORS[i % LAP_COLORS.length];
       const on = i === selLap;
       const col = on ? c + '66' : c + '1f';
+      const t0 = l.start_t || 0;
+      const t1 = t0 + (l.duration_s || 0);
       return [
-        { xAxis: (l.start_distance_m || 0) / 1000, itemStyle: { color: col } },
-        { xAxis: (l.end_distance_m || (l.start_distance_m || 0) + (l.distance_m || 0)) / 1000, itemStyle: { color: col } },
+        { xAxis: t0, itemStyle: { color: col } },
+        { xAxis: t1, itemStyle: { color: col } },
       ];
     });
   }, [laps, selLap]);
 
-  const altBounds = useMemo(() => {
-    let lo = Infinity, hi = -Infinity;
-    for (const p of elevSeries) { if (p[1] < lo) lo = p[1]; if (p[1] > hi) hi = p[1]; }
-    if (!isFinite(lo) || !isFinite(hi)) return { min: 0, max: 1 };
-    if (lo === hi) { lo -= 1; hi += 1; }
-    return { min: Math.floor(lo / 10) * 10, max: Math.ceil(hi / 10) * 10 };
-  }, [elevSeries]);
-
-  // Elevation option — STABLE across selIdx (only recomputed on data / selected-lap change)
-  const elevOption = useMemo(() => {
-    if (!hasAlt) return null;
+  // Profile option — STABLE across selIdx (only recomputed on data / metric / selected-lap change).
+  // Axes match the selectable metric cards: x = time, y = the metric (auto-scaled).
+  const profileOption = useMemo(() => {
+    if (!hasSeries) return null;
     return {
       grid: { left: 48, right: 20, top: 26, bottom: 42 },
       tooltip: {
         trigger: 'axis',
-        valueFormatter: (v) => (v == null ? '' : v + ' m'),
-        formatter: (ps) => { const p = ps[0]; return `距离 ${p.value[0]} km<br/>海拔 ${p.value[1] == null ? '—' : p.value[1]} m`; },
+        formatter: (ps) => { const p = ps[0]; return `${tLabel(p.value[0])}<br/>${metric.name} ${p.value[1] == null ? '—' : p.value[1]} ${metric.unit}`; },
       },
       xAxis: {
-        type: 'value', name: '距离 (km)', min: 0, max: 'dataMax',
-        nameTextStyle: { color: '#6b7688' }, splitLine: { show: false },
-        axisLine: { lineStyle: { color: '#e6eaf2' } }, axisLabel: { color: '#6b7688' },
+        type: 'value', min: 'dataMin', max: 'dataMax',
+        splitLine: { show: false }, axisLine: { lineStyle: { color: '#e6eaf2' } },
+        axisLabel: { formatter: (v) => tLabel(v), color: '#6b7688' },
       },
       yAxis: {
-        type: 'value', name: '海拔 (m)', min: altBounds.min, max: altBounds.max,
-        nameTextStyle: { color: '#6b7688' }, splitLine: { lineStyle: { color: '#eef1f7' } }, axisLabel: { color: '#6b7688' },
+        type: 'value', name: metric.unit, scale: true,
+        nameTextStyle: { color: '#6b7688', align: 'left' }, splitLine: { lineStyle: { color: '#eef1f7' } }, axisLabel: { color: '#6b7688' },
       },
       series: [{
-        type: 'line', data: elevSeries, showSymbol: false, smooth: false, sampling: 'lttb',
-        lineStyle: { width: 2.5, color: '#0ea5e9' }, itemStyle: { color: '#0ea5e9' },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#0ea5e933' }, { offset: 1, color: '#0ea5e905' }] } },
+        type: 'line', data: series, showSymbol: false, smooth: false, sampling: 'lttb',
+        lineStyle: { width: 2.5, color: metric.color }, itemStyle: { color: metric.color },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: metric.color + '33' }, { offset: 1, color: metric.color + '05' }] } },
         markArea: lapBands.length ? { silent: true, data: lapBands } : undefined,
         markLine: { silent: true, symbol: 'none', label: { show: false }, lineStyle: { color: CUR_COLOR, width: 2 }, data: [] },
       }],
     };
-  }, [hasAlt, elevSeries, lapBands, altBounds]);
+  }, [hasSeries, series, lapBands, metric]);
 
   // Move the current-position line WITHOUT resetting the whole option (keeps the
   // hover axis-pointer smooth). Re-applies after any base-option rebuild too.
   useEffect(() => {
     const c = elevRef.current;
     if (!c || c.isDisposed || c.isDisposed()) return;
-    if (!hasAlt || !cur || cur.distance_m == null) return;
+    if (!hasSeries || !cur || cur.t == null) return;
     c.setOption({
       series: [{
         markLine: {
           silent: true, symbol: 'none', label: { show: false },
           lineStyle: { color: CUR_COLOR, width: 2 },
-          data: [{ xAxis: +(cur.distance_m / 1000).toFixed(3) }],
+          data: [{ xAxis: cur.t }],
         },
       }],
     });
-  }, [selIdx, elevOption, hasAlt, cur]);
+  }, [selIdx, profileOption, hasSeries, cur]);
 
-  // Bind elevation-chart interactions once.
+  // Bind profile-chart interactions once (drives the map marker). The x value is a
+  // time (seconds); map it to a record index, which positions the marker.
   const onElevInit = useCallback((c) => {
     elevRef.current = c;
     c.on('updateAxisPointer', (e) => {
       const ai = (e && e.axesInfo || []).find((a) => typeof a.value === 'number');
       if (!ai) return;
-      setSelIdx(idxAtDist(ai.value * 1000));
+      setSelIdx(idxAtTime(ai.value));
     });
     c.on('click', (e) => {
       const v = e && e.value;
-      const d = Array.isArray(v) ? v[0] : null;
-      if (typeof d === 'number') setSelIdx(idxAtDist(d * 1000));
+      const t = Array.isArray(v) ? v[0] : null;
+      if (typeof t === 'number') setSelIdx(idxAtTime(t));
     });
-  }, [idxAtDist]);
+  }, [idxAtTime]);
 
   const onMapClick = useCallback(({ lat, lon }) => {
     const recs = recordsRef.current;
@@ -185,7 +189,7 @@ export default function LinkedCharts({ activity, records, laps }) {
   function selectLap(i) {
     if (!laps || !laps[i]) return;
     setSelLap(i);
-    setSelIdx(idxAtDist(laps[i].start_distance_m || 0));
+    setSelIdx(idxAtTime(laps[i].start_t || 0));
   }
 
   function fitWindow() {
@@ -269,7 +273,7 @@ export default function LinkedCharts({ activity, records, laps }) {
                 <div className="mp-row"><span>海拔</span><b>{cur && cur.altitude != null ? Math.round(cur.altitude) : '—'}<i> m</i></b></div>
                 <div className="mp-row"><span>距离</span><b>{cur && cur.distance_m != null ? num(cur.distance_m / 1000, 2) : '—'}<i> km</i></b></div>
                 <div className="mp-row"><span>心率</span><b>{cur && cur.hr != null ? cur.hr : '—'}<i> bpm</i></b></div>
-                <div className="mp-row"><span>功率</span><b>{cur && cur.power != null ? cur.power : '—'}<i> W</i></b></div>
+                <div className="mp-row"><span>功率</span><b>{cur && cur.power != null ? num(cur.power) : '—'}<i> W</i></b></div>
                 {records.some((r) => r.speed != null) && <SpeedSpark records={records} idx={selIdx} />}
               </div>
             </div>
@@ -277,13 +281,13 @@ export default function LinkedCharts({ activity, records, laps }) {
         </div>
       </div>
 
-      {/* ---- Bottom: Elevation profile (linked) ---- */}
+      {/* ---- Bottom: switchable profile (linked), axes match the selected metric card ---- */}
       <div className="card pad" style={{ marginTop: 16 }}>
-        <h3 className="section-title">⛰️ 海拔剖面 <span className="muted lc-hint">· 与地图 / 圈速联动：在曲线上悬停或点击、点击地图任意处、或选中左侧某圈，即可联动查看该点指标</span></h3>
-        {hasAlt ? (
-          <Chart option={elevOption} onInit={onElevInit} height={300} />
+        <h3 className="section-title">{metric.icon} {metric.name}剖面 <span className="muted lc-hint">· 点击下方任一指标图表可切换本图（横轴=时间、纵轴=该指标，与所选图表一致）· 与地图 / 圈速联动：在曲线上悬停或点击、点击地图任意处、或选中左侧某圈，即可联动查看该点指标</span></h3>
+        {hasSeries ? (
+          <Chart option={profileOption} onInit={onElevInit} height={300} />
         ) : (
-          <div className="empty small">该活动无海拔数据</div>
+          <div className="empty small">该活动无{metric.name}数据</div>
         )}
       </div>
     </div>

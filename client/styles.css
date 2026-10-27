@@ -57,6 +57,12 @@ h1,h2,h3,h4 { margin: 0; font-weight: 700; }
 .topbar .crumb { color: var(--muted); font-size: 13px; margin-top: 4px; }
 
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+/* Selectable metric cards (drive the switchable profile chart) */
+.metric-card { cursor: pointer; transition: box-shadow .15s, border-color .15s, transform .12s; }
+.metric-card:hover { border-color: #c3c9f5; box-shadow: 0 4px 14px rgba(79,70,229,.14); }
+.metric-card:active { transform: translateY(1px); }
+.metric-card.selected { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(79,70,229,.28), var(--shadow); }
+.metric-card.selected .section-title { color: var(--brand); }
 .pad { padding: 18px 20px; }
 .section-title { font-size: 15px; font-weight: 700; margin: 0 0 14px; color: var(--ink); }
 
