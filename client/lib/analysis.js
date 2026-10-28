@@ -255,6 +255,185 @@ export function calendarHeatmap(activities) {
   return { data, min: dates[0] || null, max: dates[dates.length - 1] || null };
 }
 
+const mean = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+const monthKey = (iso) => (iso ? iso.slice(0, 7) : null);
+const monthsOf = (acts) => [...new Set(acts.map((a) => monthKey(a.start_time)).filter(Boolean))].sort();
+
+// =============== 趋势：训练量（按月、按运动类型堆叠里程 + 总时长） ===============
+export function trainingVolumeTrend(acts) {
+  const months = monthsOf(acts);
+  const sports = [...new Set(acts.map((a) => a.sport))];
+  const grid = {};
+  months.forEach((m) => (grid[m] = { hours: 0 }));
+  for (const a of acts) {
+    const m = monthKey(a.start_time); if (!m) continue;
+    grid[m][a.sport] = (grid[m][a.sport] || 0) + (a.distance_km || 0);
+    grid[m].hours += (a.duration_s || 0) / 3600;
+  }
+  return {
+    months, sports,
+    data: months.map((m) => ({
+      month: m, hours: +grid[m].hours.toFixed(1),
+      bySport: Object.fromEntries(sports.map((s) => [s, +(grid[m][s] || 0).toFixed(1)])),
+    })),
+  };
+}
+
+// =============== 趋势：区间时间（Time in Zone，按月堆叠 Z1–Z5 时长） ===============
+export function timeInZoneTrend(acts) {
+  const maxHrs = acts.map((a) => a.max_hr).filter((v) => v > 0);
+  const maxHR = maxHrs.length ? Math.min(210, Math.max(...maxHrs)) : 185;
+  const rest = 60;
+  const zones = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5'];
+  const months = monthsOf(acts);
+  const grid = {}; months.forEach((m) => (grid[m] = { Z1: 0, Z2: 0, Z3: 0, Z4: 0, Z5: 0 }));
+  for (const a of acts) {
+    const m = monthKey(a.start_time); if (!m || !a.avg_hr) continue;
+    const hrp = Math.max(0, Math.min(1.2, (a.avg_hr - rest) / (maxHR - rest)));
+    let z; if (hrp < 0.65) z = 'Z1'; else if (hrp < 0.8) z = 'Z2'; else if (hrp < 0.9) z = 'Z3'; else if (hrp < 1.05) z = 'Z4'; else z = 'Z5';
+    grid[m][z] += (a.duration_s || 0) / 3600;
+  }
+  return {
+    months, zones,
+    data: months.map((m) => ({ month: m, ...Object.fromEntries(zones.map((z) => [z, +grid[m][z].toFixed(2)])) })),
+  };
+}
+
+// =============== 趋势：有氧效率（每单位心率产出，指数化 mean=100 便于跨运动比较） ===============
+export function aerobicEfficiencyTrend(acts) {
+  const rows = acts
+    .filter((a) => a.avg_hr && a.avg_hr > 0)
+    .map((a) => {
+      const eff = a.avg_power && a.avg_power > 0 ? a.avg_power / a.avg_hr
+        : a.avg_speed ? (a.avg_speed / a.avg_hr) * 100 : null;
+      return eff != null ? { date: a.start_time, eff, sport: a.sport } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  if (rows.length < 2) return null;
+  const m = mean(rows.map((r) => r.eff)) || 1;
+  return { rows: rows.map((r) => ({ ...r, idx: +( (r.eff / m) * 100 ).toFixed(1) })) };
+}
+
+// =============== 趋势：受伤风险（ACWR 急性:慢性负荷比，周粒度） ===============
+export function injuryRiskTrend(acts) {
+  const byDay = {};
+  const maxHrs = acts.map((a) => a.max_hr).filter((v) => v > 0);
+  const maxHR = maxHrs.length ? Math.min(210, Math.max(...maxHrs)) : 185;
+  const rest = 60;
+  for (const a of acts) {
+    if (!a.start_time) continue;
+    const day = a.start_time.slice(0, 10);
+    const durMin = (a.moving_s || a.duration_s || 0) / 60;
+    let load;
+    if (a.avg_hr && a.avg_hr > rest) {
+      const hrp = Math.max(0, Math.min(1.2, (a.avg_hr - rest) / (maxHR - rest)));
+      load = durMin * (0.64 + 1.92 * hrp - 0.6192 * hrp * hrp);
+      if (a.sport === 'cycling' || a.sport === 'biking') load *= 1.15;
+    } else load = durMin * (a.sport === 'cycling' || a.sport === 'biking' ? 1.2 : 1);
+    byDay[day] = (byDay[day] || 0) + load;
+  }
+  const days = Object.keys(byDay).sort();
+  if (!days.length) return null;
+  const sumWin = (d, off, span) => {
+    let s = 0, c = 0;
+    for (let i = off; i < off + span; i++) {
+      const dk = new Date(d); dk.setUTCDate(dk.getUTCDate() - i);
+      const k = dk.toISOString().slice(0, 10);
+      if (byDay[k] != null) { s += byDay[k]; c++; }
+    }
+    return c ? s / c : 0;
+  };
+  const series = [];
+  const d = new Date(days[0] + 'T00:00:00Z');
+  const end = new Date(days[days.length - 1] + 'T00:00:00Z');
+  while (d <= end) {
+    const acute = sumWin(d, 0, 7), chronic = sumWin(d, 7, 28);
+    series.push({
+      date: d.toISOString().slice(0, 10),
+      acute: +acute.toFixed(0), chronic: +chronic.toFixed(0),
+      acwr: chronic > 0 ? +(acute / chronic).toFixed(2) : null,
+    });
+    d.setUTCDate(d.getUTCDate() + 7);
+  }
+  return { series };
+}
+
+// =============== 会话进阶：均值最大图（Mean Max / Best Avg） ===============
+// 对某指标在固定时长窗口（5s/1m/5m/20m/60m）求最佳平均值
+export function meanMaxChart(records, key, durations = [5, 60, 300, 1200, 3600]) {
+  const pts = records.filter((r) => r[key] != null && isFinite(r[key])).sort((a, b) => a.t - b.t);
+  if (pts.length < 10) return null;
+  const n = pts.length;
+  const dt = n > 1 ? (pts[n - 1].t - pts[0].t) / (n - 1) : 1;
+  const out = [];
+  for (const secs of durations) {
+    const win = Math.max(1, Math.round(secs / dt));
+    if (win > n) { out.push({ secs, best: null }); continue; }
+    let s = 0; for (let j = 0; j < win; j++) s += pts[j][key];
+    let best = s / win;
+    for (let i = win; i < n; i++) { s += pts[i][key] - pts[i - win][key]; const v = s / win; if (v > best) best = v; }
+    out.push({ secs, best: +(best.toFixed(2)) });
+  }
+  return out;
+}
+
+// =============== 会话进阶：象限图（两指标散点 + 均值参考线四象限） ===============
+export function quadrantData(records, xKey, yKey, max = 600) {
+  const pts = records
+    .filter((r) => r[xKey] != null && r[yKey] != null && isFinite(r[xKey]) && isFinite(r[yKey]))
+    .map((r) => [r[xKey], r[yKey]]);
+  if (pts.length < 10) return null;
+  const step = Math.ceil(pts.length / max);
+  const data = pts.filter((_, i) => i % step === 0);
+  return { data, mx: +(mean(data.map((p) => p[0])).toFixed(1)), my: +(mean(data.map((p) => p[1])).toFixed(1)) };
+}
+
+// =============== 会话进阶：有氧解耦（Aerobic Decoupling） ===============
+// 后半程 HR 相对前半程的变化 − 功率变化；>5% 视为明显解耦（心率漂移）
+export function aerobicDecoupling(records) {
+  const p = records.filter((r) => r.power != null && r.hr != null && r.power > 0).sort((a, b) => a.t - b.t);
+  if (p.length < 40) return null;
+  const mid = Math.floor(p.length / 2);
+  const a1 = p.slice(0, mid), a2 = p.slice(mid);
+  const hr1 = mean(a1.map((r) => r.hr)), hr2 = mean(a2.map((r) => r.hr));
+  const pw1 = mean(a1.map((r) => r.power)), pw2 = mean(a2.map((r) => r.power));
+  const hrDelta = ((hr2 - hr1) / hr1) * 100;
+  const pwDelta = ((pw2 - pw1) / pw1) * 100;
+  const decoupling = hrDelta - pwDelta;
+  return {
+    decoupling: +decoupling.toFixed(1),
+    hrDelta: +hrDelta.toFixed(1), pwDelta: +pwDelta.toFixed(1),
+    hr1: Math.round(hr1), hr2: Math.round(hr2),
+    verdict: decoupling <= 5 ? 'good' : decoupling <= 10 ? 'warn' : 'bad',
+  };
+}
+
+// =============== 会话进阶：间隔检测（Interval Detection） ===============
+// 找出显著高于均值（>mean+std）的连续努力段，视为一次间隔
+export function intervalDetection(records, key = 'power') {
+  const pts = records.filter((r) => r[key] != null && isFinite(r[key])).sort((a, b) => a.t - b.t);
+  if (pts.length < 30) return [];
+  const vals = pts.map((r) => r[key]);
+  const m = mean(vals);
+  const std = Math.sqrt(mean(vals.map((v) => (v - m) ** 2)));
+  const thr = m + std;
+  const ivals = [];
+  let run = null;
+  const flush = () => {
+    if (run && run.n >= 5) ivals.push({ start: run.start, end: run.end, avg: Math.round(run.sum / run.n), peak: Math.round(run.peak), n: run.n });
+    run = null;
+  };
+  for (const r of pts) {
+    if (r[key] >= thr) {
+      if (!run) run = { start: r.t, end: r.t, sum: r[key], peak: r[key], n: 1 };
+      else { run.end = r.t; run.sum += r[key]; run.peak = Math.max(run.peak, r[key]); run.n++; }
+    } else flush();
+  }
+  flush();
+  return ivals.slice(0, 40);
+}
+
 // =============== 星期 × 时段 热力图 ===============
 export function weekdayHourHeatmap(activities) {
   const grid = Array.from({ length: 7 }, () => Array(24).fill(0));

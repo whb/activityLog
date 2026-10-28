@@ -10,6 +10,7 @@
     "dev:client": "vite",
     "build": "vite build",
     "smoke": "node scripts/smoke.mjs",
+    "verify": "node scripts/verify-pages.mjs",
     "seed": "node --env-file-if-exists=.env server/seed.js",
     "seed:fit": "node --env-file-if-exists=.env server/seed-fit.js",
     "gen:demo": "node scripts/gen-demo-data.js",

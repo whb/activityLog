@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { sportMeta, fmtDate, fmtDuration, num } from '../lib/format.js';
+import { downloadCSV } from '../lib/export.js';
 
 export default function Activities() {
   const nav = useNavigate();
@@ -36,6 +37,7 @@ export default function Activities() {
           <h1>活动记录</h1>
           <div className="crumb">共 {rows.length} 条 · 按时间倒序</div>
         </div>
+        <button className="btn btn-ghost" onClick={() => downloadCSV('activities', rows)}>📄 导出 CSV（当前筛选）</button>
       </div>
 
       <div className="card pad" style={{ marginBottom: 16 }}>

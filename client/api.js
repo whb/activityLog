@@ -43,7 +43,26 @@ export const api = {
   activity: (id) => withDemo(() => parse(fetch(base + '/activities/' + id)), () => demo.detail(id)),
   remove: (id) => withDemo(() => parse(fetch(base + '/activities/' + id, { method: 'DELETE' })), () => demo.removeActivity(id)),
   reports: () => withDemo(() => parse(fetch(base + '/reports/summary')), () => demo.reports),
+  reportsMonthly: (p) => withDemo(() => parse(fetch(base + '/reports/monthly' + qs(p))), () => ({ rows: [], sql: '' })),
   equipment: () => withDemo(() => parse(fetch(base + '/equipment')), () => demo.equipment),
+  athleteMetrics: () => withDemo(() => parse(fetch(base + '/athlete-metrics')), () => []),
+  workouts: () => withDemo(() => parse(fetch(base + '/workouts')), () => []),
+  async addAthleteMetric(m) {
+    const res = await fetch(base + '/athlete-metrics', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(m) });
+    return parse(res);
+  },
+  async removeAthleteMetric(id) {
+    const res = await fetch(base + '/athlete-metrics/' + id, { method: 'DELETE' });
+    return parse(res);
+  },
+  async addWorkout(w) {
+    const res = await fetch(base + '/workouts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(w) });
+    return parse(res);
+  },
+  async removeWorkout(id) {
+    const res = await fetch(base + '/workouts/' + id, { method: 'DELETE' });
+    return parse(res);
+  },
   async importFit(file) {
     const fd = new FormData();
     fd.append('file', file);

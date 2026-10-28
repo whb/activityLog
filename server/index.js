@@ -12,6 +12,7 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 app.use(cors());
+app.use(express.json({ limit: '2mb' }));
 
 // ---- Import ----
 app.post('/api/import', upload.single('file'), async (req, res, next) => {
@@ -123,6 +124,64 @@ app.get('/api/equipment', (req, res) => {
     GROUP BY e.id ORDER BY e.last_seen DESC
   `).all();
   res.json(rows);
+});
+
+// ---- Reports：按月聚合（Count/时长/里程/均心率/均踏频/爬升） ----
+app.get('/api/reports/monthly', (req, res) => {
+  const { sport } = req.query;
+  const where = ['start_time IS NOT NULL']; const args = [];
+  if (sport && sport !== 'all') { where.push('sport = ?'); args.push(sport); }
+  const sql = `
+    SELECT substr(start_time,1,7) AS month, sport,
+           COUNT(*) AS count,
+           ROUND(SUM(duration_s)/3600.0,1) AS hours,
+           ROUND(SUM(distance_km),1) AS distance_km,
+           ROUND(AVG(avg_hr)) AS avg_hr,
+           ROUND(AVG(avg_cadence)) AS avg_cadence,
+           ROUND(SUM(elevation_gain)) AS elevation,
+           ROUND(AVG(avg_power)) AS avg_power
+    FROM activities
+    WHERE ${where.join(' AND ')}
+    GROUP BY month, sport ORDER BY month, sport
+  `;
+  const rows = db.prepare(sql).all(...args);
+  res.json({ rows, sql });
+});
+
+// ---- Athlete metrics（运动员指标，随时间记录体重/静息HR/最大HR/LTHR/FTP） ----
+app.get('/api/athlete-metrics', (req, res) => {
+  res.json(db.prepare('SELECT * FROM athlete_metrics ORDER BY recorded_at ASC, id ASC').all());
+});
+app.post('/api/athlete-metrics', (req, res) => {
+  const b = req.body || {};
+  if (!b.recorded_at) return res.status(400).json({ error: 'recorded_at 必填' });
+  const r = db.prepare(`
+    INSERT INTO athlete_metrics (recorded_at, weight_kg, resting_hr, max_hr, lthr, ftp, notes)
+    VALUES (?,?,?,?,?,?,?)
+  `).run(b.recorded_at, b.weight_kg ?? null, b.resting_hr ?? null, b.max_hr ?? null, b.lthr ?? null, b.ftp ?? null, b.notes ?? null);
+  res.json({ ok: true, id: Number(r.lastInsertRowid) });
+});
+app.delete('/api/athlete-metrics/:id', (req, res) => {
+  db.prepare('DELETE FROM athlete_metrics WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+// ---- Workouts（训练计划：步骤以 JSON 存于 steps 列） ----
+app.get('/api/workouts', (req, res) => {
+  const rows = db.prepare('SELECT * FROM workouts ORDER BY created_at DESC, id DESC').all();
+  res.json(rows.map((w) => { try { w.steps = JSON.parse(w.steps || '[]'); } catch { w.steps = []; } return w; }));
+});
+app.post('/api/workouts', (req, res) => {
+  const b = req.body || {};
+  if (!b.name) return res.status(400).json({ error: 'name 必填' });
+  const steps = Array.isArray(b.steps) ? b.steps : [];
+  const r = db.prepare('INSERT INTO workouts (name, sport, description, steps, created_at) VALUES (?,?,?,?,?)')
+    .run(b.name, b.sport || 'cycling', b.description || '', JSON.stringify(steps), new Date().toISOString());
+  res.json({ ok: true, id: Number(r.lastInsertRowid) });
+});
+app.delete('/api/workouts/:id', (req, res) => {
+  db.prepare('DELETE FROM workouts WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 // ---- Runtime config (frontend needs the AMap key) ----

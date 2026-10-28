@@ -98,9 +98,30 @@ CREATE TABLE IF NOT EXISTS activity_equipment (
   PRIMARY KEY (activity_id, equipment_id)
 );
 
+CREATE TABLE IF NOT EXISTS athlete_metrics (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  recorded_at TEXT,
+  weight_kg   REAL,
+  resting_hr  INTEGER,
+  max_hr      INTEGER,
+  lthr        INTEGER,
+  ftp         INTEGER,
+  notes       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS workouts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT,
+  sport       TEXT,
+  description TEXT,
+  steps       TEXT,
+  created_at  TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_records_activity ON records(activity_id);
 CREATE INDEX IF NOT EXISTS idx_laps_activity ON laps(activity_id);
 CREATE INDEX IF NOT EXISTS idx_activities_start ON activities(start_time);
+CREATE INDEX IF NOT EXISTS idx_athlete_at ON athlete_metrics(recorded_at);
 `);
 
 module.exports = db;

@@ -111,6 +111,13 @@ td .muted { color: var(--muted); }
 }
 .filters select:focus, .filters input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
 
+.chip {
+  border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer;
+  padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; transition: all .15s;
+}
+.chip:hover { border-color: #c3c9f5; background: #f7f8ff; }
+.chip.active { background: var(--brand); border-color: var(--brand); color: #fff; box-shadow: 0 4px 12px rgba(79,70,229,.3); }
+
 /* buttons */
 .btn {
   display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 10px;
@@ -204,3 +211,49 @@ td .muted { color: var(--muted); }
 .spark { display: block; margin-top: 6px; background: #f7f9ff; border-radius: 6px; }
 
 .empty.small { padding: 22px 12px; font-size: 13px; }
+
+/* ===== 表单字段 / 提示 ===== */
+.fld { display: flex; flex-direction: column; gap: 4px; }
+.fld span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.fld input, .fld select {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; color: var(--ink); background: #fff;
+}
+.fld input:focus, .fld select:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(79,70,229,.12); outline: none; }
+.ok-msg { color: #16a34a; font-size: 13px; font-weight: 600; }
+.sql {
+  background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 12.5px;
+  line-height: 1.6; overflow-x: auto; white-space: pre; margin: 0;
+}
+.month-total { background: #f7f8ff; }
+.month-total td { border-top: 1px solid var(--line); }
+
+/* ===== 日历 ===== */
+.cal-head, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-head { margin-bottom: 6px; }
+.cal-wd { font-size: 12px; color: var(--muted); font-weight: 700; text-align: center; padding: 4px 0; }
+.cal-cell {
+  position: relative; min-height: 62px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px;
+  cursor: pointer; transition: all .12s; background: #fff;
+}
+.cal-cell.empty { cursor: default; border: none; background: transparent; }
+.cal-cell:hover { border-color: #c3c9f5; }
+.cal-cell.has { border-color: #c7ccf7; background: #f7f8ff; }
+.cal-cell.sel { box-shadow: 0 0 0 2px var(--brand); border-color: var(--brand); }
+.cal-d { font-size: 13px; font-weight: 700; color: var(--ink); }
+.cal-badge { position: absolute; top: 6px; right: 8px; font-size: 11px; font-weight: 700; color: var(--brand); }
+.cal-dots { position: absolute; left: 8px; right: 8px; bottom: 6px; display: flex; gap: 3px; }
+.cal-dots span { width: 7px; height: 7px; border-radius: 50%; }
+.cal-summary { margin-top: 12px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.cal-list { display: flex; flex-direction: column; gap: 8px; }
+.cal-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; transition: all .12s; }
+.cal-item:hover { border-color: #c3c9f5; background: #f7f8ff; }
+.cal-item-name { font-weight: 600; font-size: 14px; margin-top: 6px; }
+.cal-item-meta { font-size: 12px; }
+
+/* ===== 训练计划步骤 ===== */
+.wk-steps { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: #fbfcff; }
+.wk-step-head, .wk-step { display: grid; grid-template-columns: 110px 90px 120px 1fr 40px; gap: 8px; align-items: center; }
+.wk-step-head { font-size: 12px; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
+.wk-step { margin-bottom: 6px; }
+.wk-step select, .wk-step input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); }
+.wk-step input:focus, .wk-step select:focus { border-color: var(--brand); outline: none; }

@@ -5,6 +5,11 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import Dashboard from '../client/pages/Dashboard.jsx';
 import Activities from '../client/pages/Activities.jsx';
 import ActivityDetail from '../client/pages/ActivityDetail.jsx';
+import Trends from '../client/pages/Trends.jsx';
+import Reports from '../client/pages/Reports.jsx';
+import Athlete from '../client/pages/Athlete.jsx';
+import Calendar from '../client/pages/Calendar.jsx';
+import Workouts from '../client/pages/Workouts.jsx';
 import Equipment from '../client/pages/Equipment.jsx';
 import Import from '../client/pages/Import.jsx';
 
@@ -58,6 +63,9 @@ global.fetch = async (url) => {
   fetchCalls.push(u);
   let body;
   if (u.includes('/reports/summary')) body = RE;
+  else if (u.includes('/reports/monthly')) body = { rows: RE.monthly.map((m) => ({ ...m, avg_hr: 150, avg_cadence: 85, elevation: 50, avg_power: 200 })), sql: 'SELECT substr(start_time,1,7) AS month ...' };
+  else if (u.includes('/athlete-metrics')) body = [{ id: 1, recorded_at: '2026-03-01', weight_kg: 70, resting_hr: 55, max_hr: 195, lthr: 165, ftp: 250, notes: 'seed' }];
+  else if (u.includes('/workouts')) body = [{ id: 1, name: '阈值训练', sport: 'cycling', description: 'demo', steps: [{ type: 'warmup', duration_s: 600, target_type: 'none', target: null }, { type: 'interval', duration_s: 300, target_type: 'power', target: 280 }], created_at: '2026-03-01T00:00:00Z' }];
   else if (u.includes('/activities/sports')) body = ['running', 'cycling'];
   else if (/\/activities\/\d+/.test(u)) body = DETAIL;
   else if (u.includes('/activities')) body = LIST;
@@ -68,6 +76,11 @@ global.fetch = async (url) => {
 
 const CASES = [
   ['/', <Dashboard />, '各运动类型累计'],
+  ['/trends', <Trends />, '趋势分析'],
+  ['/reports', <Reports />, '月度明细'],
+  ['/calendar', <Calendar />, '本月'],
+  ['/athlete', <Athlete />, '运动员指标'],
+  ['/workouts', <Workouts />, '训练计划'],
   ['/activities', <Activities />, 'Morning Trail Run'],
   ['/activities/1', <ActivityDetail />, '总里程'],
   ['/equipment', <Equipment />, 'Forerunner 265'],
@@ -87,6 +100,11 @@ async function main() {
         <MemoryRouter initialEntries={[path]}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/trends" element={<Trends />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/calendar" element={<Calendar />} />
+            <Route path="/athlete" element={<Athlete />} />
+            <Route path="/workouts" element={<Workouts />} />
             <Route path="/activities" element={<Activities />} />
             <Route path="/activities/:id" element={<ActivityDetail />} />
             <Route path="/equipment" element={<Equipment />} />
@@ -123,7 +141,7 @@ async function main() {
     root.unmount(); c.remove();
   }
 
-  console.log('ALL 5 PAGES RENDER OK (no runtime errors)');
+  console.log('ALL PAGES RENDER OK (no runtime errors)');
   process.exit(0);
 }
 

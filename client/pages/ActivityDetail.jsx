@@ -1,15 +1,20 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import Chart from '../components/Chart.jsx';
 import LinkedCharts from '../components/LinkedCharts.jsx';
 import { sportMeta, fmtDateTime, fmtDuration, num, tLabel } from '../lib/format.js';
+import { downloadCSV, chartPNG } from '../lib/export.js';
 import {
   powerAnalysis, powerSpikes, climbAnalysis,
   scatter, histogram, swimStats,
+  meanMaxChart, quadrantData, aerobicDecoupling, intervalDetection,
 } from '../lib/analysis.js';
 
 const ZONE_COLORS = ['#16a34a', '#84cc16', '#f59e0b', '#f97316', '#ef4444'];
+const DEC_COLOR = { good: '#16a34a', warn: '#f59e0b', bad: '#ef4444' };
+const DEC_LABEL = { good: '良好（无明显漂移）', warn: '轻度漂移', bad: '明显解耦' };
+const isCyclish = (sport, pwr) => ['cycling', 'biking'].includes(sport) && !!pwr;
 
 // Time-series metrics. Each drives both a selectable card below AND (when selected)
 // the switchable profile chart up top (which keeps its distance x-axis for map linkage).
@@ -38,6 +43,24 @@ export default function ActivityDetail() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [selectedKey, setSelectedKey] = useState('alt');
+  const chartInsts = useRef({});
+
+  const baseName = (data && data.activity && data.activity.name) || ('activity-' + id);
+  function exportRecords() {
+    if (!data) return;
+    downloadCSV(baseName + '-records', data.records.map((r) => ({
+      t: r.t, lat: r.lat, lon: r.lon, altitude: r.altitude, speed: r.speed,
+      distance_m: r.distance_m, hr: r.hr, cadence: r.cadence, power: r.power, temperature: r.temperature,
+    })));
+  }
+  function exportLaps() {
+    if (!data || !data.laps.length) { alert('该活动没有圈速数据'); return; }
+    downloadCSV(baseName + '-laps', data.laps);
+  }
+  function exportPNG() {
+    const c = selectedDef && chartInsts.current[selectedDef.key];
+    chartPNG(c, baseName + '-' + (selectedDef ? selectedDef.key : 'chart'));
+  }
 
   useEffect(() => {
     setData(null); setErr('');
@@ -112,8 +135,44 @@ export default function ActivityDetail() {
       series: [{ type: 'bar', data: h.bins.map((b) => b.count), itemStyle: { color }, barMaxWidth: 24 }],
     });
 
+    // ---- 进阶分析：均值最大图 / 象限图 / 有氧解耦 / 间隔检测 ----
+    const isCycl = ['cycling', 'biking'].includes(a.sport) && hasPower;
+    const meanKey = isCycl ? 'power' : 'speed';
+    const meanUnit = isCycl ? 'W' : 'km/h';
+    const durLabel = (s) => (s < 60 ? s + 's' : s < 3600 ? (s / 60) + 'min' : (s / 3600) + 'h');
+    const mmax = meanMaxChart(recs, meanKey, [5, 60, 300, 1200, 3600]);
+    const mmaxRows = mmax ? mmax.filter((x) => x.best != null) : [];
+
+    const q = hasPower
+      ? { xk: 'hr', yk: 'power', xn: '心率 (bpm)', yn: '功率 (W)' }
+      : { xk: 'hr', yk: 'speed', xn: '心率 (bpm)', yn: '速度 (km/h)' };
+    const quad = quadrantData(recs, q.xk, q.yk);
+
+    const decoupling = hasPower ? aerobicDecoupling(recs) : null;
+    const ivKey = hasPower ? 'power' : 'speed';
+    const ivUnit = hasPower ? 'W' : 'km/h';
+    const intervals = intervalDetection(recs, ivKey);
+
     return {
       pwr, spikes, climbs, hrSpeed, powerSpeed, speedHist, hrHist, swim,
+      q, decoupling, intervals, ivUnit,
+      mmaxOpt: mmaxRows.length ? {
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (p) => `${p[0].name}<br/>${meanUnit}: ${p[0].value}` },
+        grid: { left: 48, right: 16, top: 20, bottom: 30 },
+        xAxis: { type: 'category', data: mmaxRows.map((d) => durLabel(d.secs)), axisLabel: { color: '#6b7688' }, axisLine: { lineStyle: { color: '#e6eaf2' } } },
+        yAxis: { type: 'value', name: meanUnit, scale: true, nameTextStyle: { color: '#6b7688' }, axisLabel: { color: '#6b7688' }, splitLine: { lineStyle: { color: '#eef1f7' } } },
+        series: [{ type: 'bar', data: mmaxRows.map((d) => d.best), itemStyle: { color: '#0ea5e9' }, barMaxWidth: 44, label: { show: true, position: 'top', color: '#6b7688' } }],
+      } : null,
+      quadOpt: quad ? {
+        tooltip: { trigger: 'item', formatter: (p) => `${q.xn}: ${p.value[0]}<br/>${q.yn}: ${p.value[1]}` },
+        grid: { left: 50, right: 16, top: 20, bottom: 44 },
+        xAxis: { type: 'value', name: q.xn, scale: true, axisLabel: { color: '#6b7688' }, nameTextStyle: { color: '#6b7688' }, splitLine: { lineStyle: { color: '#eef1f7' } } },
+        yAxis: { type: 'value', name: q.yn, scale: true, axisLabel: { color: '#6b7688' }, nameTextStyle: { color: '#6b7688' }, splitLine: { lineStyle: { color: '#eef1f7' } } },
+        series: [
+          { type: 'scatter', data: quad.data, symbolSize: 5, itemStyle: { color: '#7c3aed', opacity: 0.4 } },
+          { type: 'line', data: [], markLine: { silent: true, symbol: 'none', lineStyle: { type: 'dashed', color: '#94a3b8' }, label: { show: false }, data: [{ xAxis: quad.mx }, { yAxis: quad.my }] } },
+        ],
+      } : null,
       curveOpt: pwr ? {
         tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
         grid: { left: 48, right: 16, top: 20, bottom: 30 },
@@ -174,7 +233,12 @@ export default function ActivityDetail() {
           </h1>
           <div className="crumb">{fmtDateTime(a.start_time)}{a.device ? ' · ' + a.device : ''}</div>
         </div>
-        <button className="btn btn-ghost" onClick={remove}>🗑 删除</button>
+        <div className="filters" style={{ gap: 8 }}>
+          <button className="btn btn-ghost" onClick={exportPNG} title="导出当前选中的时序图为 PNG">📷 导出图片</button>
+          <button className="btn btn-ghost" onClick={exportRecords}>📄 记录 CSV</button>
+          <button className="btn btn-ghost" onClick={exportLaps}>📄 圈速 CSV</button>
+          <button className="btn btn-ghost" onClick={remove}>🗑 删除</button>
+        </div>
       </div>
 
       <div className="tiles" style={{ marginBottom: 16 }}>
@@ -200,7 +264,7 @@ export default function ActivityDetail() {
               title="点击：在上方剖面图中查看该指标"
             >
               <h3 className="section-title">{c.icon} {c.name} <span className="muted" style={{ fontSize: 12, fontWeight: 500 }}>· {c.count} 点</span></h3>
-              <Chart option={c.opt} height={240} />
+              <Chart option={c.opt} height={240} onInit={(inst) => { chartInsts.current[c.key] = inst; }} />
             </div>
           ))}
         </div>
@@ -285,6 +349,50 @@ export default function ActivityDetail() {
         <div className="grid charts-2" style={{ marginBottom: 16 }}>
           {an.speedHistOpt && <div className="card pad"><h3 className="section-title">⚡ 速度分布直方图</h3><Chart option={an.speedHistOpt} height={280} /></div>}
           {an.hrHistOpt && <div className="card pad"><h3 className="section-title">❤️ 心率分布直方图</h3><Chart option={an.hrHistOpt} height={280} /></div>}
+        </div>
+      )}
+
+      {/* ===== 进阶分析（复刻 ActivityLog2 会话标签） ===== */}
+      {(an.mmaxOpt || an.quadOpt) && (
+        <div className="grid charts-2" style={{ marginBottom: 16 }}>
+          {an.mmaxOpt && <div className="card pad"><h3 className="section-title">🏆 均值最大图（Best Avg · {isCyclish(a.sport, an.pwr) ? '功率' : '速度'}）</h3><Chart option={an.mmaxOpt} height={280} /><p className="muted" style={{ fontSize: 11 }}>各时长窗口内的最佳平均值。</p></div>}
+          {an.quadOpt && <div className="card pad"><h3 className="section-title">🎯 象限图（{an.q.xn} × {an.q.yn}）</h3><Chart option={an.quadOpt} height={280} /><p className="muted" style={{ fontSize: 11 }}>虚线为均值参考线，划分四象限。</p></div>}
+        </div>
+      )}
+
+      {an.decoupling && (
+        <div className="card pad" style={{ marginBottom: 16 }}>
+          <h3 className="section-title">🫁 有氧解耦（Aerobic Decoupling）</h3>
+          <div className="tiles" style={{ marginBottom: 10 }}>
+            <div className="tile"><div className="lab">解耦程度</div><div className="val" style={{ color: DEC_COLOR[an.decoupling.verdict] }}>{an.decoupling.decoupling > 0 ? '+' : ''}{an.decoupling.decoupling}%</div></div>
+            <div className="tile"><div className="lab">HR 变化</div><div className="val">{an.decoupling.hrDelta > 0 ? '+' : ''}{an.decoupling.hrDelta}%</div></div>
+            <div className="tile"><div className="lab">功率变化</div><div className="val">{an.decoupling.pwDelta > 0 ? '+' : ''}{an.decoupling.pwDelta}%</div></div>
+            <div className="tile"><div className="lab">前半 → 后半 HR</div><div className="val">{an.decoupling.hr1}→{an.decoupling.hr2}</div></div>
+          </div>
+          <p className="muted" style={{ fontSize: 12 }}>
+            判定：<b style={{ color: DEC_COLOR[an.decoupling.verdict] }}>{DEC_LABEL[an.decoupling.verdict]}</b>
+            {' '}· 解耦 &lt;5% 表示在稳定功率下心率无明显漂移，有氧状态良好；&gt;10% 提示脱水/疲劳/热应激。
+          </p>
+        </div>
+      )}
+
+      {an.intervals.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="pad" style={{ paddingBottom: 6 }}><h3 className="section-title" style={{ margin: 0 }}>🔁 间隔检测（{an.intervals.length} 组 · {an.ivUnit}）</h3></div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>开始</th><th>结束</th><th>时长</th><th>均值 ({an.ivUnit})</th><th>峰值 ({an.ivUnit})</th></tr></thead>
+              <tbody>
+                {an.intervals.map((v, i) => (
+                  <tr key={i}>
+                    <td>{i + 1}</td><td>{tLabel(v.start)}</td><td>{tLabel(v.end)}</td>
+                    <td>{Math.round(v.end - v.start)}s</td>
+                    <td>{v.avg}</td><td><b>{v.peak}</b></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

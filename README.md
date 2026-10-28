@@ -15,7 +15,14 @@
 - ⛰️ **爬升分析（Climb Analysis）**：自动检测爬升段，列出长度 / 爬升 / 平均坡度 / 最大坡度 / 累积坡度。
 - 📊 **散点图 & 直方图**：心率×速度、功率×速度散点；速度分布、心率分布直方图。
 - 🏊 **游泳指标**：配速（/100m）、距离、平均心率等（SWOLF 需划次数据，采集到后自动展示）。
+- 🏆 **会话进阶分析**：均值最大图（Best Avg，多时长窗口最佳均值）、象限图（心率×功率/速度 + 均值参考线四象限）、有氧解耦（Aerobic Decoupling，后半程 HR 相对功率漂移）、间隔检测（自动识别重复努力段）。
+- 📈 **趋势分析（Trends）**：复刻 ActivityLog2「Trends」——性能（PMC）、训练量（按运动堆叠 + 时长双轴）、区间时间（Time in Zone Z1–Z5）、有氧效率（每单位心率产出指数化）、受伤风险（ACWR 急性:慢性负荷比，含绿区标记）。
+- 📑 **报表（Reports）**：按月聚合（次数/时长/里程/均心率/均踏频/爬升/均功率），支持按运动筛选，可导出 CSV 并查看底层 SQL。
+- 📅 **日历（Calendar）**：月历视图，按日显示训练分布，点选日期查看当日活动并跳转详情。
+- 🧑 **运动员指标（Athlete）**：随时间记录体重 / 静息HR / 最大HR / LTHR / FTP，趋势折线图 + 记录管理。
+- 📝 **训练计划（Workouts）**：创建/管理训练结构（热身/间隔/恢复/冷却，含时长与目标值），步骤以 JSON 存储。
 - 🔧 **装备**：自动识别 FIT 中的设备信息，累计每台设备使用时长与关联活动数。
+- ⬇️ **导出**：活动/记录/圈速 CSV（UTF-8 带 BOM，Excel 兼容）、任意 ECharts 图表导出 PNG。
 
 ## 技术栈
 
@@ -35,7 +42,7 @@
 
 ```
 ├─ client/            # React 前端
-│  ├─ pages/          # 仪表盘 / 活动列表 / 详情 / 装备 / 导入
+│  ├─ pages/          # 仪表盘 / 趋势 / 报表 / 日历 / 活动列表 / 详情 / 运动员 / 训练计划 / 装备 / 导入
 │  ├─ components/     # ECharts、Leaflet 封装
 │  ├─ lib/format.js   # 运动元数据与格式化
 │  ├─ App.jsx         # 布局与路由
@@ -144,6 +151,13 @@ cp .env.example .env
 | `GET` | `/api/activities/:id` | 活动详情 + 全部记录点 + 圈速(laps) |
 | `DELETE` | `/api/activities/:id` | 删除活动及其记录 |
 | `GET` | `/api/reports/summary` | 概览 / 月度 / 各类型累计 |
+| `GET` | `/api/reports/monthly?sport=` | 按月聚合报表 + 底层 SQL |
+| `GET` | `/api/athlete-metrics` | 运动员指标列表 |
+| `POST` | `/api/athlete-metrics` | 新增指标（recorded_at 必填） |
+| `DELETE` | `/api/athlete-metrics/:id` | 删除指标 |
+| `GET` | `/api/workouts` | 训练计划列表（steps 已解析） |
+| `POST` | `/api/workouts` | 新建训练计划 |
+| `DELETE` | `/api/workouts/:id` | 删除训练计划 |
 | `GET` | `/api/equipment` | 装备列表与使用时长 |
 
 ## 说明与限制
